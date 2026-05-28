@@ -5,7 +5,6 @@ WORKDIR /app
 COPY package.json ./
 COPY server.js ./
 COPY public ./public
-COPY data/generated/.gitkeep ./data/generated/.gitkeep
 
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
