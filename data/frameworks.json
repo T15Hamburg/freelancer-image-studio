@@ -1,0 +1,44 @@
+[
+  {
+    "id": "fotl-ebay-hero",
+    "name": "eBay Hero",
+    "category": "Fruit of the Loom",
+    "prompt": "Create a square 1:1 ecommerce marketplace hero image for Fruit of the Loom [PRODUCT TYPE], [PACK SIZE], for the German market. Use the reference product image as the source for garment shape, fit, fabric, color, and brand accuracy. Show [MODEL OR NO MODEL]. Clean white background, bright professional ecommerce lighting, high contrast, sharp edges. Composition: product/model fills most of the frame, leave top-right area clean for marketplace icons. Add clear visual space for badges: \"[PACK BADGE]\", \"[SIZE RANGE]\", \"[SHIPPING MESSAGE]\". Show available colors: [COLOR LIST]. Make it look trustworthy, clean, modern, and suitable for basic wear. Do not add fake logos, fake trust seals, prices, watermarks, unreadable tiny text, distorted clothing, extra products, or wrong brand labels.",
+    "builtIn": true
+  },
+  {
+    "id": "fotl-color-overview",
+    "name": "Color Overview",
+    "category": "Fruit of the Loom",
+    "prompt": "Create a clean ecommerce color overview image for Fruit of the Loom [PRODUCT TYPE]. Show one main [PRODUCT TYPE] large in the center and a neat grid or fan arrangement of available colors around it. Use these colors: [COLOR LIST]. White background, realistic fabric texture, consistent lighting, clean shadows. Make it very readable on mobile. Keep the top-right area empty for marketplace icons. No prices, no watermark, no fake trust seals, no tiny text.",
+    "builtIn": true
+  },
+  {
+    "id": "fotl-lifestyle-model",
+    "name": "Lifestyle Model",
+    "category": "Fruit of the Loom",
+    "prompt": "Create a realistic lifestyle ecommerce image for Fruit of the Loom [PRODUCT TYPE] worn by a friendly adult [MODEL DESCRIPTION], German/European market style. The garment should look plain, clean, basic, and comfortable. Use the reference image to preserve product shape, sleeve length, collar or hood details, fit, fabric, and color. Use a neutral studio or simple everyday background, natural pose, realistic body proportions. Focus on fit and everyday wear. No luxury fashion look, no exaggerated body, no invented logos, no generated text, no price, no watermark.",
+    "builtIn": true
+  },
+  {
+    "id": "fotl-feature-detail",
+    "name": "Feature Detail",
+    "category": "Fruit of the Loom",
+    "prompt": "Create a clean product feature image for Fruit of the Loom [PRODUCT TYPE]. Show the garment clearly with visual focus on [FEATURES: cotton fabric, collar, cuffs, hood, drawstrings, stitching, fit, pack value]. Minimal ecommerce layout, white or light grey background, large clean areas where text labels can be added later. Do not generate small text. Leave empty label spaces instead. Keep the garment realistic and brand/product accurate.",
+    "builtIn": true
+  },
+  {
+    "id": "fotl-pack-bundle",
+    "name": "Pack Bundle",
+    "category": "Fruit of the Loom",
+    "prompt": "Create a square ecommerce bundle image for Fruit of the Loom [PRODUCT TYPE] [PACK SIZE]. Show multiple folded or fanned garments to communicate pack value, with one hero garment or model if useful. White background, bright lighting, clean shadows, high contrast. Include clear badge areas for \"[PACK BADGE]\" and \"[SIZE RANGE]\" but do not render tiny text. Show these colors if relevant: [COLOR LIST]. No prices, no fake logos, no watermark, no crowded layout.",
+    "builtIn": true
+  },
+  {
+    "id": "fotl-background-swap",
+    "name": "Background Swap",
+    "category": "Fruit of the Loom",
+    "prompt": "Keep the Fruit of the Loom [PRODUCT TYPE] from the reference image accurate and replace the surroundings with [NEW BACKGROUND]. Preserve garment edges, proportions, fabric texture, color, lighting direction, and all important details. Make the final image look naturally photographed, not pasted. No fake logos, no prices, no watermark, no tiny text.",
+    "builtIn": true
+  }
+]

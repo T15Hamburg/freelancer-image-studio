@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Freelancer Image Studio</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <nav class="app-nav" aria-label="App sections">
+      <button class="tab-button active" type="button" data-tab="imageTab">Image Studio</button>
+      <button class="tab-button" type="button" data-tab="titleTab">eBay Titles</button>
+    </nav>
+
+    <main class="shell tab-panel active" id="imageTab">
+      <section class="workspace" aria-label="Image generator">
+        <div class="topbar">
+          <div>
+            <p class="eyebrow">Private image workspace</p>
+            <h1>Freelancer Image Studio</h1>
+          </div>
+          <div class="status" id="status">Checking server</div>
+        </div>
+
+        <form class="composer" id="generateForm">
+          <label class="access-field" id="accessField">
+            <span>Access code</span>
+            <input id="accessCode" name="accessCode" type="password" autocomplete="current-password" placeholder="Enter code">
+          </label>
+
+          <label class="prompt-field">
+            <span>Prompt</span>
+            <textarea id="prompt" name="prompt" rows="7" maxlength="4000" placeholder="Describe the image to create..." required></textarea>
+          </label>
+
+          <div class="framework-row">
+            <label>
+              <span>Framework</span>
+              <select id="framework" name="framework"></select>
+            </label>
+            <button class="secondary" id="applyFrameworkButton" type="button">Apply</button>
+          </div>
+
+          <details class="framework-manager" id="frameworkManager">
+            <summary>Framework manager</summary>
+            <div class="manager-grid">
+              <label>
+                <span>Name</span>
+                <input id="frameworkName" type="text" maxlength="80" placeholder="Framework name">
+              </label>
+              <label>
+                <span>Category</span>
+                <input id="frameworkCategory" type="text" maxlength="80" placeholder="Category">
+              </label>
+            </div>
+            <label>
+              <span>Template prompt</span>
+              <textarea id="frameworkPrompt" rows="8" maxlength="8000" placeholder="Write the reusable framework prompt..."></textarea>
+            </label>
+            <div class="manager-actions">
+              <button class="primary" id="saveFrameworkButton" type="button">Save</button>
+              <button class="secondary" id="newFrameworkButton" type="button">New</button>
+              <button class="secondary" id="duplicateFrameworkButton" type="button">Duplicate</button>
+              <button class="secondary danger" id="deleteFrameworkButton" type="button">Delete</button>
+            </div>
+          </details>
+
+          <label class="reference-picker">
+            <span>Reference images</span>
+            <input id="referenceImages" name="referenceImages" type="file" accept="image/png,image/jpeg,image/webp" multiple>
+          </label>
+          <div class="reference-preview" id="referencePreview"></div>
+
+          <div class="controls">
+            <label>
+              <span>Model</span>
+              <select id="model" name="model"></select>
+            </label>
+            <label>
+              <span>Size</span>
+              <select id="size" name="size"></select>
+            </label>
+            <label>
+              <span>Quality</span>
+              <select id="quality" name="quality"></select>
+            </label>
+            <label>
+              <span>Format</span>
+              <select id="outputFormat" name="outputFormat"></select>
+            </label>
+            <label>
+              <span>Background</span>
+              <select id="background" name="background"></select>
+            </label>
+            <label>
+              <span>Input fidelity</span>
+              <select id="inputFidelity" name="inputFidelity">
+                <option value="low">Low</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+            <label>
+              <span>Images</span>
+              <input id="count" name="count" type="number" min="1" max="4" value="1">
+            </label>
+          </div>
+
+          <div class="actions">
+            <button class="primary" id="generateButton" type="submit">Generate</button>
+            <button class="secondary" id="clearButton" type="button">Clear prompt</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="gallery-panel" aria-label="Generated images">
+        <div class="gallery-head">
+          <h2>Gallery</h2>
+          <button class="secondary compact" id="refreshButton" type="button">Refresh</button>
+        </div>
+        <div class="gallery" id="gallery"></div>
+      </section>
+    </main>
+
+    <main class="title-shell tab-panel" id="titleTab" hidden>
+      <section class="title-workspace" aria-label="eBay title generator">
+        <div class="topbar">
+          <div>
+            <p class="eyebrow">eBay.de SEO workspace</p>
+            <h1>Title Generator</h1>
+          </div>
+          <div class="status" id="titleStatus">80-char optimizer</div>
+        </div>
+
+        <form class="title-form" id="titleForm">
+          <div class="manager-grid">
+            <label>
+              <span>Brand</span>
+              <select id="titleBrand"></select>
+            </label>
+            <label>
+              <span>SKU / Product code</span>
+              <input id="titleSku" type="text" list="skuOptions" placeholder="F140, F182, F324...">
+              <datalist id="skuOptions"></datalist>
+            </label>
+          </div>
+
+          <div class="manager-grid">
+            <label>
+              <span>Product type</span>
+              <select id="titleType"></select>
+            </label>
+            <label>
+              <span>Product line</span>
+              <input id="titleLine" type="text" placeholder="Heavy Cotton">
+            </label>
+          </div>
+
+          <div class="title-grid-3">
+            <label>
+              <span>Weight</span>
+              <input id="titleWeight" type="text" placeholder="190g">
+            </label>
+            <label>
+              <span>Min size</span>
+              <select id="titleMinSize"></select>
+            </label>
+            <label>
+              <span>Max size</span>
+              <select id="titleMaxSize"></select>
+            </label>
+          </div>
+
+          <fieldset class="choice-group">
+            <legend>Gender tokens</legend>
+            <label><input type="checkbox" name="titleGender" value="Herren" checked> Herren</label>
+            <label><input type="checkbox" name="titleGender" value="Damen" checked> Damen</label>
+            <label><input type="checkbox" name="titleGender" value="Unisex"> Unisex</label>
+            <label><input type="checkbox" name="titleGender" value="Kinder"> Kinder</label>
+          </fieldset>
+
+          <div class="manager-grid">
+            <label>
+              <span>Listing kind</span>
+              <select id="titleListingKind">
+                <option value="single">Single-unit listing</option>
+                <option value="pack">Multipack listing</option>
+                <option value="variant">Variant listing</option>
+              </select>
+            </label>
+            <label>
+              <span>Pack size</span>
+              <select id="titlePack">
+                <option value="">No pack</option>
+                <option value="2er Pack">2er Pack</option>
+                <option value="3er Pack">3er Pack</option>
+                <option value="5er Pack">5er Pack</option>
+                <option value="10er Pack">10er Pack</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="manager-grid">
+            <label>
+              <span>Audience emphasis</span>
+              <select id="titleAudience">
+                <option value="general">General</option>
+                <option value="print">Print-on-demand / bedrucken</option>
+                <option value="workwear">Workwear</option>
+                <option value="fashion">Fashion-aware basic</option>
+              </select>
+            </label>
+            <label>
+              <span>Cut / detail</span>
+              <select id="titleCut">
+                <option value="">Default / none</option>
+                <option value="Rundhals">Rundhals</option>
+                <option value="V-Neck">V-Neck</option>
+                <option value="V-Ausschnitt">V-Ausschnitt</option>
+                <option value="Slim Fit">Slim Fit</option>
+                <option value="Regular Fit">Regular Fit</option>
+                <option value="Lady-Fit">Lady-Fit</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="actions">
+            <button class="primary" id="generateTitleButton" type="submit">Generate titles</button>
+            <button class="secondary" id="resetTitleButton" type="button">Reset</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="title-results-panel" aria-label="Generated eBay titles">
+        <div class="gallery-head">
+          <h2>Title candidates</h2>
+          <span class="muted" id="titleSummary">Pick product data first.</span>
+        </div>
+        <div class="title-results" id="titleResults"></div>
+
+        <div class="side-artifacts">
+          <section>
+            <h2>Item specifics</h2>
+            <div class="specifics-grid" id="specificsOutput"></div>
+          </section>
+          <section>
+            <h2>Description opener</h2>
+            <textarea id="descriptionOpener" readonly rows="5"></textarea>
+          </section>
+          <section>
+            <h2>Variant titles</h2>
+            <div id="variantTitles" class="variant-list"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <template id="imageCardTemplate">
+      <article class="image-card">
+        <a class="image-link" target="_blank" rel="noreferrer">
+          <img alt="Generated image">
+        </a>
+        <div class="card-body">
+          <p class="card-prompt"></p>
+          <div class="meta"></div>
+          <a class="download" download>Download</a>
+        </div>
+      </article>
+    </template>
+
+    <template id="titleCandidateTemplate">
+      <article class="title-card">
+        <div class="title-card-head">
+          <strong class="title-text"></strong>
+          <button class="secondary compact copy-title" type="button">Copy</button>
+        </div>
+        <div class="title-stats"></div>
+        <div class="title-breakdown"></div>
+        <p class="why-title"></p>
+        <details>
+          <summary>Dropped tokens</summary>
+          <div class="dropped-tokens"></div>
+        </details>
+      </article>
+    </template>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

@@ -1,0 +1,4 @@
+.env
+data/generated/*
+!data/generated/.gitkeep
+data/gallery.json
