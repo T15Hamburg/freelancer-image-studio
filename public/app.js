@@ -38,6 +38,7 @@ const existingTokenSummary = document.querySelector("#existingTokenSummary");
 const saveTokensButton = document.querySelector("#saveTokensButton");
 const clearResearchButton = document.querySelector("#clearResearchButton");
 const extractTokensButton = document.querySelector("#extractTokensButton");
+const resetResearchButton = document.querySelector("#resetResearchButton");
 
 const fields = {
   model: document.querySelector("#model"),
@@ -1182,12 +1183,40 @@ researchForm.addEventListener("submit", async (event) => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload)
     });
+    selectedResearchImage = null;
+    researchFields.image.value = "";
+    renderResearchPreview();
     renderResearchSuggestions(result.suggestions || []);
     researchStatus.textContent = "Review";
   } catch (error) {
     researchStatus.textContent = error.message;
   } finally {
     extractTokensButton.disabled = false;
+  }
+});
+
+resetResearchButton.addEventListener("click", async () => {
+  const confirmed = confirm(`Reset research marks for ${researchFields.brand.value} ${researchFields.type.value}? The keywords stay saved.`);
+  if (!confirmed) return;
+  resetResearchButton.disabled = true;
+  researchStatus.textContent = "Resetting";
+
+  try {
+    const result = await api("/api/token-research/reset", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        brand: researchFields.brand.value,
+        productType: researchFields.type.value
+      })
+    });
+    researchStatus.textContent = "Reset";
+    researchSummary.textContent = `${result.reset} research marks reset. Keywords were kept.`;
+    await loadResearchTokens();
+  } catch (error) {
+    researchStatus.textContent = error.message;
+  } finally {
+    resetResearchButton.disabled = false;
   }
 });
 

@@ -897,6 +897,43 @@ async function handleResearchTokens(req, res, url) {
   });
 }
 
+async function handleResearchReset(req, res) {
+  let body;
+  try {
+    body = await readRequestJson(req);
+  } catch (error) {
+    return sendJson(res, 400, { error: error.message });
+  }
+
+  if (!isAuthorized(req, body)) return sendJson(res, 401, { error: "Access code is incorrect." });
+
+  const brand = cleanText(body.brand || "");
+  const productType = cleanText(body.productType || "");
+  if (!brand || !productType) return sendJson(res, 400, { error: "Brand and product type are required." });
+
+  try {
+    const library = await readTokenLibrary();
+    let reset = 0;
+    const tokens = library.tokens.map((token) => {
+      if (!tokenMatchesResearchContext(token, brand, productType)) return token;
+      const next = { ...token };
+      if (next.verified_count || next.last_verified || next.first_verified || next.source_queries || next.source_query) reset += 1;
+      delete next.verified_count;
+      delete next.last_verified;
+      delete next.first_verified;
+      delete next.source_queries;
+      delete next.source_query;
+      delete next.position;
+      return next;
+    });
+
+    const next = await writeTokenLibrary({ tokens });
+    return sendJson(res, 200, { reset, tokensVersion: next.version, tokenCount: next.tokens.length });
+  } catch (error) {
+    return sendJson(res, 400, { error: error.message });
+  }
+}
+
 async function handleTokenSave(req, res) {
   let body;
   try {
@@ -1325,6 +1362,10 @@ const server = createServer(async (req, res) => {
 
   if (req.method === "GET" && url.pathname === "/api/token-research/tokens") {
     return handleResearchTokens(req, res, url);
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/token-research/reset") {
+    return handleResearchReset(req, res);
   }
 
   if (req.method === "POST" && url.pathname === "/api/tokens/save") {
