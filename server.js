@@ -910,8 +910,9 @@ function cleanSavedToken(raw) {
 function tokenMatchesResearchContext(token, brand, productType) {
   const brands = Array.isArray(token.applicable_brands) ? token.applicable_brands : ["*"];
   const types = Array.isArray(token.applicable_types) ? token.applicable_types : ["*"];
-  return (brands.includes("*") || brands.includes(brand))
-    && (types.includes("*") || types.includes(productType));
+  const brandMatches = !brand || brands.includes("*") || brands.includes(brand);
+  const typeMatches = !productType || types.includes("*") || types.includes(productType);
+  return brandMatches && typeMatches;
 }
 
 function tokenMatchesResetScope(token, brand, productType, scope) {
@@ -927,15 +928,16 @@ async function handleResearchTokens(req, res, url) {
 
   const brand = cleanText(url.searchParams.get("brand") || "");
   const productType = cleanText(url.searchParams.get("productType") || "");
+  const limit = Math.max(1, Math.min(1000, Number(url.searchParams.get("limit")) || 120));
   const library = await readTokenLibrary();
   const tokens = library.tokens
-    .filter((token) => !brand || !productType || tokenMatchesResearchContext(token, brand, productType))
+    .filter((token) => tokenMatchesResearchContext(token, brand, productType))
     .sort((a, b) => {
       const scoreDelta = tokenScore(b) - tokenScore(a);
       if (scoreDelta !== 0) return scoreDelta;
       return titleSlotOrder.indexOf(a.slot) - titleSlotOrder.indexOf(b.slot);
     })
-    .slice(0, 120)
+    .slice(0, limit)
     .map((token) => ({
       id: token.id,
       text: token.text,

@@ -349,6 +349,34 @@
             </div>
             <p class="research-help" id="existingTokenHelp"></p>
             <div class="existing-token-list" id="existingTokenList"></div>
+            <div class="token-export-panel">
+              <div class="gallery-head compact-head">
+                <h2>Export keywords</h2>
+                <span class="muted" id="tokenExportSummary">Export saved tokens as text.</span>
+              </div>
+              <div class="manager-grid">
+                <label>
+                  <span>Export scope</span>
+                  <select id="tokenExportScope">
+                    <option value="brand-type">Selected brand + product type</option>
+                    <option value="brand">Selected brand, all product types</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Text format</span>
+                  <select id="tokenExportFormat">
+                    <option value="simple">Keyword list</option>
+                    <option value="detailed">Keyword + slot + score</option>
+                    <option value="grouped">Grouped by slot</option>
+                  </select>
+                </label>
+              </div>
+              <textarea id="tokenExportText" rows="8" readonly placeholder="Exported keywords will appear here."></textarea>
+              <div class="actions research-actions">
+                <button class="secondary compact" id="exportTokensButton" type="button">Export text</button>
+                <button class="primary compact" id="copyExportTokensButton" type="button" disabled>Copy export</button>
+              </div>
+            </div>
             <div class="reset-panel">
               <label>
                 <span>Reset scope</span>

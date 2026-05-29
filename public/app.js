@@ -41,6 +41,12 @@ const clearResearchButton = document.querySelector("#clearResearchButton");
 const extractTokensButton = document.querySelector("#extractTokensButton");
 const resetResearchButton = document.querySelector("#resetResearchButton");
 const resetResearchScope = document.querySelector("#resetResearchScope");
+const exportTokensButton = document.querySelector("#exportTokensButton");
+const copyExportTokensButton = document.querySelector("#copyExportTokensButton");
+const tokenExportScope = document.querySelector("#tokenExportScope");
+const tokenExportFormat = document.querySelector("#tokenExportFormat");
+const tokenExportText = document.querySelector("#tokenExportText");
+const tokenExportSummary = document.querySelector("#tokenExportSummary");
 
 const fields = {
   model: document.querySelector("#model"),
@@ -567,6 +573,57 @@ function renderExistingResearchTokens(tokens) {
     : `<div class="empty small-empty">Save extracted keywords to build this list.</div>`;
 }
 
+function formatTokenExport(tokens, format, scopeLabel) {
+  const sorted = [...tokens].sort((a, b) => {
+    const slotDelta = slotOrder.indexOf(a.slot) - slotOrder.indexOf(b.slot);
+    if (format === "grouped" && slotDelta !== 0) return slotDelta;
+    const scoreDelta = (Number(b.search_volume_score) || 0) - (Number(a.search_volume_score) || 0);
+    if (scoreDelta !== 0) return scoreDelta;
+    return String(a.text).localeCompare(String(b.text));
+  });
+
+  if (!sorted.length) return "";
+
+  if (format === "detailed") {
+    return [
+      `Token export: ${scopeLabel}`,
+      `Count: ${sorted.length}`,
+      "",
+      ...sorted.map((token) => `${token.text}\t${token.slot}\tSEO ${Number(token.search_volume_score) || 0}/10\t${(token.applicable_types || ["*"]).join(", ")}`)
+    ].join("\n");
+  }
+
+  if (format === "grouped") {
+    const groups = new Map();
+    for (const token of sorted) {
+      if (!groups.has(token.slot)) groups.set(token.slot, []);
+      groups.get(token.slot).push(token.text);
+    }
+    return Array.from(groups.entries())
+      .map(([slot, items]) => `${slot}\n${items.map((item) => `- ${item}`).join("\n")}`)
+      .join("\n\n");
+  }
+
+  return sorted.map((token) => token.text).join("\n");
+}
+
+async function exportResearchTokens() {
+  const scope = tokenExportScope.value;
+  const scopeLabel = scope === "brand"
+    ? `${researchFields.brand.value}, all product types`
+    : `${researchFields.brand.value} + ${researchFields.type.value}`;
+  const params = new URLSearchParams({ brand: researchFields.brand.value });
+  if (scope !== "brand") params.set("productType", researchFields.type.value);
+  params.set("limit", "1000");
+  const data = await api(`/api/token-research/tokens?${params}`);
+  const tokens = data.tokens || [];
+  tokenExportText.value = formatTokenExport(tokens, tokenExportFormat.value, scopeLabel);
+  copyExportTokensButton.disabled = !tokenExportText.value.trim();
+  tokenExportSummary.textContent = tokens.length
+    ? `${tokens.length} tokens exported for ${scopeLabel}.`
+    : `No saved tokens found for ${scopeLabel}.`;
+}
+
 async function loadResearchTokens() {
   if (!researchFields.brand.value || !researchFields.type.value) return;
   try {
@@ -576,6 +633,9 @@ async function loadResearchTokens() {
     });
     const data = await api(`/api/token-research/tokens?${params}`);
     renderExistingResearchTokens(data.tokens || []);
+    tokenExportText.value = "";
+    copyExportTokensButton.disabled = true;
+    tokenExportSummary.textContent = "Export saved tokens as text.";
   } catch (error) {
     existingTokenSummary.textContent = error.message;
   }
@@ -1276,6 +1336,29 @@ saveTokensButton.addEventListener("click", async () => {
 });
 
 clearResearchButton.addEventListener("click", clearResearch);
+
+exportTokensButton.addEventListener("click", async () => {
+  exportTokensButton.disabled = true;
+  researchStatus.textContent = "Exporting";
+  try {
+    await exportResearchTokens();
+    researchStatus.textContent = "Export ready";
+  } catch (error) {
+    researchStatus.textContent = error.message;
+  } finally {
+    exportTokensButton.disabled = false;
+  }
+});
+
+copyExportTokensButton.addEventListener("click", async () => {
+  if (!tokenExportText.value.trim()) return;
+  try {
+    await navigator.clipboard.writeText(tokenExportText.value);
+    researchStatus.textContent = "Export copied";
+  } catch {
+    researchStatus.textContent = "Copy failed. Select the export text manually.";
+  }
+});
 
 refreshButton.addEventListener("click", loadGallery);
 
