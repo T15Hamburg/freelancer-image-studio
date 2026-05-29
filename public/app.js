@@ -60,6 +60,10 @@ const titleFields = {
 
 let selectedReferences = [];
 let frameworks = [];
+let titleCatalogProducts = [];
+let titleCatalogBrands = [];
+let titleCatalogProductTypes = [];
+let titleCatalogSizes = [];
 
 const labels = {
   "gpt-image-1.5": "GPT Image 1.5",
@@ -106,6 +110,11 @@ const productMaster = [
 ];
 
 const brands = ["Fruit of the Loom", "Gildan", "B&C", "SOL'S", "Russell", "Neutral", "James & Nicholson", "Stedman", "Hanes", "Tee Jays"];
+
+titleCatalogProducts = productMaster;
+titleCatalogBrands = brands;
+titleCatalogProductTypes = productTypes;
+titleCatalogSizes = sizeOrder;
 
 const audienceModifiers = {
   general: [
@@ -171,6 +180,15 @@ function normalizeToken(text) {
     .replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
+function escapeHtml(text) {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function titleCaseSizeRange(minSize, maxSize) {
   if (!minSize || !maxSize) return "";
   return minSize === maxSize ? minSize : `${minSize}-${maxSize}`;
@@ -199,7 +217,7 @@ function setGenderTokens(genders) {
 function currentProductMaster() {
   const sku = titleFields.sku.value.trim().toLowerCase();
   const brand = titleFields.brand.value;
-  return productMaster.find((product) => product.brand === brand && product.sku.toLowerCase() === sku);
+  return titleCatalogProducts.find((product) => product.brand === brand && product.sku.toLowerCase() === sku);
 }
 
 function collectTitleData(packOverride = null) {
@@ -214,6 +232,8 @@ function collectTitleData(packOverride = null) {
     type: titleFields.type.value,
     line: titleFields.line.value.trim(),
     weight: titleFields.weight.value.trim(),
+    minSize: titleFields.minSize.value,
+    maxSize: titleFields.maxSize.value,
     genders: selectedGenderTokens(),
     sizeRange,
     listingKind,
@@ -367,14 +387,14 @@ function renderTitleCandidates(candidates) {
       `SEO ${candidate.seoScore}`,
       `CTR ${candidate.ctrScore}`,
       candidate.warning
-    ].filter(Boolean).map((item) => `<span>${item}</span>`).join("");
+    ].filter(Boolean).map((item) => `<span>${escapeHtml(item)}</span>`).join("");
     card.querySelector(".title-breakdown").innerHTML = candidate.selected.map((item) => {
       const kind = item.required ? "required" : "optional";
-      return `<span class="token-pill ${kind}">${item.slot}: ${item.text}</span>`;
+      return `<span class="token-pill ${kind}">${escapeHtml(item.slot)}: ${escapeHtml(item.text)}</span>`;
     }).join("");
     card.querySelector(".why-title").textContent = candidate.why;
     card.querySelector(".dropped-tokens").innerHTML = candidate.dropped.length
-      ? candidate.dropped.map((item) => `<span>${item.text}</span>`).join("")
+      ? candidate.dropped.map((item) => `<span>${escapeHtml(item.text)}</span>`).join("")
       : "<span>None</span>";
     card.querySelector(".copy-title").addEventListener("click", () => copyText(candidate.title));
     titleResults.append(card);
@@ -404,7 +424,14 @@ function renderSpecifics(data) {
   const specifics = itemSpecifics(data);
   specificsOutput.innerHTML = Object.entries(specifics)
     .filter(([, value]) => value)
-    .map(([key, value]) => `<div class="specific-item"><span>${key}</span><strong>${value}</strong></div>`)
+    .map(([key, value]) => `<div class="specific-item"><span>${escapeHtml(key)}</span><strong>${escapeHtml(value)}</strong></div>`)
+    .join("");
+}
+
+function renderSpecificsMap(specifics) {
+  specificsOutput.innerHTML = Object.entries(specifics || {})
+    .filter(([, value]) => value)
+    .map(([key, value]) => `<div class="specific-item"><span>${escapeHtml(key)}</span><strong>${escapeHtml(value)}</strong></div>`)
     .join("");
 }
 
@@ -427,6 +454,25 @@ function renderVariantTitles(data) {
   }
 }
 
+function renderVariantTitleRows(rows) {
+  variantTitles.innerHTML = "";
+  for (const row of rows || []) {
+    const item = document.createElement("div");
+    item.className = "variant-row";
+    const code = document.createElement("code");
+    const label = document.createElement("strong");
+    const button = document.createElement("button");
+    label.textContent = row.label;
+    code.textContent = row.title;
+    button.className = "secondary compact";
+    button.type = "button";
+    button.textContent = "Copy";
+    button.addEventListener("click", () => copyText(row.title));
+    item.append(label, code, button);
+    variantTitles.append(item);
+  }
+}
+
 async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text);
@@ -437,12 +483,12 @@ async function copyText(text) {
 }
 
 function populateTitleInputs() {
-  populateSelect(titleFields.brand, brands, "Fruit of the Loom");
-  populateSelect(titleFields.type, productTypes, "T-Shirt");
-  populateSelect(titleFields.minSize, sizeOrder, "S");
-  populateSelect(titleFields.maxSize, sizeOrder, "5XL");
-  skuOptions.innerHTML = productMaster.map((product) => (
-    `<option value="${product.sku}">${product.brand} ${product.line} ${product.type}</option>`
+  populateSelect(titleFields.brand, titleCatalogBrands, titleFields.brand.value || "Fruit of the Loom");
+  populateSelect(titleFields.type, titleCatalogProductTypes, titleFields.type.value || "T-Shirt");
+  populateSelect(titleFields.minSize, titleCatalogSizes, titleFields.minSize.value || "S");
+  populateSelect(titleFields.maxSize, titleCatalogSizes, titleFields.maxSize.value || "5XL");
+  skuOptions.innerHTML = titleCatalogProducts.map((product) => (
+    `<option value="${escapeHtml(product.sku)}">${escapeHtml(`${product.brand} ${product.line} ${product.type}`)}</option>`
   )).join("");
 }
 
@@ -461,12 +507,12 @@ function applyMasterProduct(product) {
 
 function autoFillBySku() {
   const sku = titleFields.sku.value.trim().toLowerCase();
-  const product = productMaster.find((item) => item.brand === titleFields.brand.value && item.sku.toLowerCase() === sku);
+  const product = titleCatalogProducts.find((item) => item.brand === titleFields.brand.value && item.sku.toLowerCase() === sku);
   if (product) applyMasterProduct(product);
 }
 
 function resetTitleForm() {
-  applyMasterProduct(productMaster[0]);
+  applyMasterProduct(titleCatalogProducts[0]);
   titleFields.listingKind.value = "single";
   titleFields.pack.value = "";
   titleFields.audience.value = "general";
@@ -476,6 +522,16 @@ function resetTitleForm() {
   variantTitles.innerHTML = "";
   titleSummary.textContent = "Pick product data first.";
   titleStatus.textContent = "80-char optimizer";
+}
+
+async function loadTitleData() {
+  const data = await api("/api/title-data");
+  titleCatalogProducts = data.products?.length ? data.products : productMaster;
+  titleCatalogBrands = data.brands?.length ? data.brands : brands;
+  titleCatalogProductTypes = data.productTypes?.length ? data.productTypes : productTypes;
+  titleCatalogSizes = data.sizes?.length ? data.sizes : sizeOrder;
+  populateTitleInputs();
+  resetTitleForm();
 }
 
 function populateFrameworks() {
@@ -711,17 +767,24 @@ async function loadGallery() {
 async function boot() {
   try {
     const config = await api("/api/config", { withAccess: false });
+    const unlocked = !config.accessRequired || Boolean(savedAccessCode());
     accessCode.value = savedAccessCode();
     lockCode.value = savedAccessCode();
-    lockScreen.hidden = !config.accessRequired || Boolean(savedAccessCode());
+    lockScreen.hidden = unlocked;
     populateTitleInputs();
     resetTitleForm();
-    await loadFrameworks();
     populateSelect(fields.model, config.models, config.defaultModel);
     populateSelect(fields.size, config.sizes, "1024x1024");
     populateSelect(fields.quality, config.qualities, "auto");
     populateSelect(fields.outputFormat, config.formats, "png");
     populateSelect(fields.background, config.backgrounds, "auto");
+    if (!unlocked) {
+      setStatus("Locked");
+      renderEmpty("Unlock the app to load saved images.");
+      return;
+    }
+    await loadTitleData();
+    await loadFrameworks();
     setStatus(config.hasApiKey ? "Ready" : "Missing API key", !config.hasApiKey);
     await loadGallery();
   } catch (error) {
@@ -740,6 +803,8 @@ async function unlockApp() {
     await api("/api/gallery");
     lockError.textContent = "";
     lockScreen.hidden = true;
+    await loadTitleData();
+    await loadFrameworks();
     setStatus("Ready");
     await loadGallery();
   } catch {
@@ -917,16 +982,26 @@ titleFields.sku.addEventListener("change", autoFillBySku);
 titleFields.sku.addEventListener("blur", autoFillBySku);
 titleFields.brand.addEventListener("change", autoFillBySku);
 
-titleForm.addEventListener("submit", (event) => {
+titleForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  titleStatus.textContent = "Generating";
   const data = collectTitleData();
-  const candidates = generateTitleCandidates(data);
-  renderTitleCandidates(candidates);
-  renderSpecifics(data);
-  renderOpener(data, candidates.flatMap((candidate) => candidate.dropped));
-  renderVariantTitles(data);
-  titleSummary.textContent = `${candidates.length} candidates generated. Best uses ${candidates[0]?.charCount || 0}/80 chars.`;
-  titleStatus.textContent = candidates[0]?.warning || "Ready";
+  try {
+    const result = await api("/api/titles/generate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data)
+    });
+    const candidates = result.candidates || [];
+    renderTitleCandidates(candidates);
+    renderSpecificsMap(result.itemSpecifics);
+    descriptionOpener.value = result.descriptionOpener || "";
+    renderVariantTitleRows(result.variantTitles);
+    titleSummary.textContent = `${candidates.length} candidates generated. Best uses ${candidates[0]?.charCount || 0}/80 chars.`;
+    titleStatus.textContent = candidates[0]?.warning || "Ready";
+  } catch (error) {
+    titleStatus.textContent = error.message;
+  }
 });
 
 document.querySelector("#resetTitleButton").addEventListener("click", resetTitleForm);

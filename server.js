@@ -1,15 +1,23 @@
 import { createServer } from "node:http";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { appendFile, readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 
 const rootDir = resolve(".");
 const publicDir = join(rootDir, "public");
+const bundledDataDir = join(rootDir, "data");
 const dataDir = resolve(process.env.DATA_DIR || join(rootDir, "data"));
 const generatedDir = join(dataDir, "generated");
 const galleryFile = join(dataDir, "gallery.json");
 const frameworksFile = join(dataDir, "frameworks.json");
+const tokensFile = join(dataDir, "tokens.json");
+const productsFile = join(dataDir, "products.json");
+const blocklistFile = join(dataDir, "blocklist.json");
+const titleHistoryFile = join(dataDir, "title-history.jsonl");
+const bundledTokensFile = join(bundledDataDir, "tokens.json");
+const bundledProductsFile = join(bundledDataDir, "products.json");
+const bundledBlocklistFile = join(bundledDataDir, "blocklist.json");
 
 const port = Number(process.env.PORT || 4173);
 const host = process.env.HOST || "127.0.0.1";
@@ -37,6 +45,11 @@ const mimeTypes = {
 };
 
 await mkdir(generatedDir, { recursive: true });
+
+const titleSlotOrder = ["BRAND", "LINE", "TYPE", "GENDER", "WEIGHT", "MATERIAL", "SIZE", "PACK", "MODIFIER", "CUT", "SKU"];
+const fallbackProductTypes = ["T-Shirt", "Longsleeve", "Sweatshirt", "Hoodie", "Poloshirt", "Jogginghose", "Oxfordhemd", "Cap"];
+const fallbackBrands = ["Fruit of the Loom", "Gildan", "B&C", "SOL'S", "Russell", "Neutral", "James & Nicholson", "Stedman", "Hanes", "Tee Jays"];
+const fallbackSizes = ["XS", "S", "M", "L", "XL", "XXL", "3XL", "4XL", "5XL"];
 
 const defaultFrameworks = [
   {
@@ -95,6 +108,25 @@ function sendJson(res, status, payload) {
 function sendText(res, status, text) {
   res.writeHead(status, { "content-type": "text/plain; charset=utf-8" });
   res.end(text);
+}
+
+function countChars(text) {
+  return Array.from(String(text)).length;
+}
+
+function normalizeToken(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/t[\s-]?shirt/g, "t-shirt")
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function cleanText(value, max = 120) {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, max);
 }
 
 function isAuthorized(req, body = {}) {
@@ -203,6 +235,459 @@ async function handleFrameworks(req, res) {
   try {
     const saved = await writeFrameworks(body.frameworks);
     return sendJson(res, 200, { frameworks: saved });
+  } catch (error) {
+    return sendJson(res, 400, { error: error.message });
+  }
+}
+
+async function readJsonFile(filePath, fallback) {
+  try {
+    return JSON.parse(await readFile(filePath, "utf8"));
+  } catch {
+    return fallback;
+  }
+}
+
+async function readSeededJson(runtimeFile, seedFile, fallback) {
+  if (existsSync(runtimeFile)) {
+    return readJsonFile(runtimeFile, fallback);
+  }
+
+  const data = existsSync(seedFile) ? await readJsonFile(seedFile, fallback) : fallback;
+  try {
+    await writeFile(runtimeFile, JSON.stringify(data, null, 2));
+  } catch {
+    // Read-only deployments can still use the bundled seed files.
+  }
+  return data;
+}
+
+async function readTokenLibrary() {
+  const data = await readSeededJson(tokensFile, bundledTokensFile, { version: "local", tokens: [] });
+  return {
+    version: data.version || "local",
+    tokens: Array.isArray(data.tokens) ? data.tokens : []
+  };
+}
+
+async function readProductMaster() {
+  const data = await readSeededJson(productsFile, bundledProductsFile, { version: "local", products: [] });
+  return {
+    version: data.version || "local",
+    products: Array.isArray(data.products) ? data.products : []
+  };
+}
+
+async function readBlocklist() {
+  const data = await readSeededJson(blocklistFile, bundledBlocklistFile, { blocklist: [] });
+  return new Set((Array.isArray(data.blocklist) ? data.blocklist : []).map(normalizeToken));
+}
+
+function tokenScore(token) {
+  return Number(token.search_volume_score ?? token.score ?? 0) || 0;
+}
+
+function tokenFromText(text, slot, score, extra = {}) {
+  const clean = cleanText(text);
+  return {
+    id: extra.id || `${slot.toLowerCase()}_${normalizeToken(clean)}`,
+    text: clean,
+    slot,
+    language: extra.language || "NEUTRAL",
+    search_volume_score: score,
+    char_count: countChars(clean),
+    ...extra
+  };
+}
+
+function isApplicable(token, data) {
+  const brands = Array.isArray(token.applicable_brands) ? token.applicable_brands : ["*"];
+  const types = Array.isArray(token.applicable_types) ? token.applicable_types : ["*"];
+  return (brands.includes("*") || brands.includes(data.brand))
+    && (types.includes("*") || types.includes(data.type));
+}
+
+function titleCaseSizeRange(minSize, maxSize) {
+  if (!minSize || !maxSize) return "";
+  return minSize === maxSize ? minSize : `${minSize}-${maxSize}`;
+}
+
+function findProduct(products, data) {
+  const sku = normalizeToken(data.sku);
+  if (!sku) return null;
+  return products.find((product) => product.brand === data.brand && normalizeToken(product.sku) === sku) || null;
+}
+
+function cleanTitleRequest(raw, products) {
+  const base = {
+    brand: cleanText(raw.brand || fallbackBrands[0]),
+    sku: cleanText(raw.sku),
+    type: cleanText(raw.type || "T-Shirt"),
+    line: cleanText(raw.line),
+    weight: cleanText(raw.weight).replace(/\s+/g, ""),
+    minSize: cleanText(raw.minSize || ""),
+    maxSize: cleanText(raw.maxSize || ""),
+    sizeRange: cleanText(raw.sizeRange || titleCaseSizeRange(raw.minSize, raw.maxSize)),
+    genders: Array.isArray(raw.genders) ? raw.genders.map((item) => cleanText(item, 40)).filter(Boolean) : [],
+    listingKind: ["single", "pack", "variant"].includes(raw.listingKind) ? raw.listingKind : "single",
+    pack: cleanText(raw.pack),
+    audience: ["general", "print", "workwear", "fashion"].includes(raw.audience) ? raw.audience : "general",
+    cut: cleanText(raw.cut),
+    material: cleanText(raw.material),
+    fit: cleanText(raw.fit),
+    sleeve: cleanText(raw.sleeve),
+    neck: cleanText(raw.neck),
+    mpn: cleanText(raw.mpn || raw.sku)
+  };
+
+  const master = findProduct(products, base);
+  return {
+    ...base,
+    line: base.line || master?.line || "",
+    type: base.type || master?.type || "T-Shirt",
+    weight: base.weight || master?.weight || "",
+    minSize: base.minSize || master?.minSize || "S",
+    maxSize: base.maxSize || master?.maxSize || "5XL",
+    sizeRange: base.sizeRange || titleCaseSizeRange(master?.minSize, master?.maxSize),
+    genders: base.genders.length ? base.genders : (master?.genders || ["Herren", "Damen"]),
+    material: base.material || master?.material || "",
+    fit: base.fit || master?.fit || "",
+    sleeve: base.sleeve || master?.sleeve || "",
+    neck: base.neck || master?.neck || base.cut || "",
+    mpn: base.mpn || master?.mpn || base.sku
+  };
+}
+
+function requiredTokenScore(tokens, data, slot, text, fallbackScore) {
+  const matching = tokens
+    .filter((token) => token.slot === slot && normalizeToken(token.text) === normalizeToken(text) && isApplicable(token, data))
+    .map(tokenScore);
+  return matching.length ? Math.max(...matching) : fallbackScore;
+}
+
+function isTruthfullyConfirmed(token, data) {
+  if (!token.must_be_truthful) return true;
+  const confirmed = [
+    data.line,
+    data.material,
+    data.cut,
+    data.fit,
+    data.neck,
+    data.sleeve
+  ].map(normalizeToken).filter(Boolean);
+  return confirmed.includes(normalizeToken(token.text));
+}
+
+function materialMatchesProduct(token, data) {
+  if (token.slot !== "MATERIAL" || !data.material) return true;
+  const productMaterial = normalizeToken(data.material);
+  const tokenMaterial = normalizeToken(token.text);
+  if (productMaterial === tokenMaterial) return true;
+  return productMaterial === "baumwolle" && tokenMaterial === "cotton";
+}
+
+function buildTitleTokens(libraryTokens, blocklist, data) {
+  const packRequired = data.listingKind === "pack" && data.pack
+    ? tokenFromText(data.pack, "PACK", requiredTokenScore(libraryTokens, data, "PACK", data.pack, 10), { required: true })
+    : null;
+  const required = [
+    tokenFromText(data.brand, "BRAND", requiredTokenScore(libraryTokens, data, "BRAND", data.brand, 10), { required: true }),
+    data.line ? tokenFromText(data.line, "LINE", requiredTokenScore(libraryTokens, data, "LINE", data.line, 7), { required: true }) : null,
+    tokenFromText(data.type, "TYPE", requiredTokenScore(libraryTokens, data, "TYPE", data.type, 10), { required: true }),
+    packRequired
+  ].filter(Boolean);
+
+  const genderSet = new Set(data.genders.map(normalizeToken));
+
+  const dynamic = [
+    data.weight ? tokenFromText(data.weight.endsWith("g") ? data.weight : `${data.weight}g`, "WEIGHT", requiredTokenScore(libraryTokens, data, "WEIGHT", data.weight, 7)) : null,
+    data.sizeRange ? tokenFromText(data.sizeRange, "SIZE", requiredTokenScore(libraryTokens, data, "SIZE", data.sizeRange, 8)) : null,
+    data.cut ? tokenFromText(data.cut, "CUT", data.cut === "Rundhals" ? 3 : 6, { must_be_truthful: true }) : null,
+    data.sku ? tokenFromText(data.sku, "SKU", data.brand === "Gildan" ? 7 : 5) : null
+  ].filter(Boolean);
+
+  const optional = libraryTokens
+    .filter((token) => isApplicable(token, data))
+    .filter((token) => !["BRAND", "LINE", "TYPE", "WEIGHT", "SIZE"].includes(token.slot))
+    .filter((token) => !blocklist.has(normalizeToken(token.text)))
+    .filter((token) => materialMatchesProduct(token, data))
+    .filter((token) => token.slot !== "GENDER" || genderSet.has(normalizeToken(token.text)))
+    .filter((token) => {
+      if (token.slot !== "PACK") return true;
+      if (data.listingKind !== "pack") return false;
+      return data.pack ? normalizeToken(token.text) === normalizeToken(data.pack) : true;
+    })
+    .filter((token) => isTruthfullyConfirmed(token, data))
+    .map((token) => ({ ...token, required: false }));
+
+  return {
+    required: dedupeTokens(required),
+    optional: dedupeTokens([...dynamic, ...optional])
+  };
+}
+
+function dedupeTokens(tokens) {
+  const seen = new Set();
+  const result = [];
+  for (const token of tokens) {
+    const key = normalizeToken(token.text);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(token);
+  }
+  return result;
+}
+
+function orderedTokens(tokens) {
+  return [...tokens].sort((a, b) => {
+    const left = titleSlotOrder.indexOf(a.slot);
+    const right = titleSlotOrder.indexOf(b.slot);
+    const slotDelta = (left === -1 ? 999 : left) - (right === -1 ? 999 : right);
+    if (slotDelta !== 0) return slotDelta;
+    return tokenScore(b) - tokenScore(a);
+  });
+}
+
+function titleFromTokens(tokens) {
+  return orderedTokens(tokens).map((token) => token.text).join(" ").replace(/\s+/g, " ").trim();
+}
+
+function readabilityScore(title) {
+  let score = 88;
+  if (!fallbackBrands.some((brand) => title.startsWith(brand))) score -= 20;
+  if (/\d$/.test(title)) score -= 6;
+  if (/\d+[a-z]*\s+[XSML\d-]+\s+\d+er/i.test(title)) score -= 7;
+  if (countChars(title) < 70) score -= 10;
+  if (countChars(title) > 80) score -= 50;
+  if (/[★!*@]{2,}|L@@K|NEU/i.test(title)) score -= 30;
+  return Math.max(0, Math.min(100, score));
+}
+
+function effectiveScore(token, strategy, data) {
+  let score = tokenScore(token);
+  if (strategy === "audience_focused" && token.audience_boost === data.audience) score += 6;
+  if (strategy === "audience_focused" && token.slot === "MODIFIER") score += 2;
+  if (strategy === "long_tail_safe" && ["SKU", "MATERIAL", "CUT"].includes(token.slot)) score += 4;
+  if (strategy === "balanced" && ["GENDER", "SIZE", "PACK"].includes(token.slot)) score += 2;
+  if (strategy === "maximize_volume") score += score / Math.max(1, countChars(token.text));
+  return score;
+}
+
+function stateRank(tokens, strategy, data) {
+  const title = titleFromTokens(tokens);
+  const chars = countChars(title);
+  const seo = tokens.reduce((sum, token) => sum + tokenScore(token), 0);
+  const effective = tokens.reduce((sum, token) => sum + effectiveScore(token, strategy, data), 0);
+  const targetBonus = chars >= 75 && chars <= 80 ? 10 : Math.max(0, chars - 62) / 3;
+  return effective + seo * 0.5 + readabilityScore(title) / 10 + targetBonus;
+}
+
+function packTitle(data, libraryTokens, blocklist, strategy) {
+  const { required, optional } = buildTitleTokens(libraryTokens, blocklist, data);
+  const requiredTitle = titleFromTokens(required);
+  if (countChars(requiredTitle) > 80) {
+    throw new Error("Brand, line, and product type are already longer than 80 characters.");
+  }
+
+  const sortedOptional = optional
+    .filter((token) => !required.some((item) => normalizeToken(item.text) === normalizeToken(token.text)))
+    .map((token) => ({ ...token, _effectiveScore: effectiveScore(token, strategy, data) }))
+    .sort((a, b) => {
+      if (strategy === "maximize_volume") return b._effectiveScore - a._effectiveScore;
+      if (strategy === "long_tail_safe") return (b._effectiveScore / Math.max(1, countChars(b.text))) - (a._effectiveScore / Math.max(1, countChars(a.text)));
+      return b._effectiveScore - a._effectiveScore;
+    });
+
+  let states = [{ tokens: required, keys: new Set(required.map((token) => normalizeToken(token.text))) }];
+
+  for (const token of sortedOptional) {
+    const nextStates = [...states];
+    for (const state of states) {
+      const key = normalizeToken(token.text);
+      if (state.keys.has(key)) continue;
+      const nextTokens = dedupeTokens([...state.tokens, token]);
+      const title = titleFromTokens(nextTokens);
+      if (countChars(title) <= 80) {
+        nextStates.push({
+          tokens: nextTokens,
+          keys: new Set([...state.keys, key])
+        });
+      }
+    }
+
+    states = nextStates
+      .sort((a, b) => stateRank(b.tokens, strategy, data) - stateRank(a.tokens, strategy, data))
+      .slice(0, 260);
+  }
+
+  const selected = orderedTokens(states[0].tokens).map(({ _effectiveScore, ...token }) => token);
+  const selectedKeys = new Set(selected.map((token) => normalizeToken(token.text)));
+  const dropped = sortedOptional
+    .filter((token) => !selectedKeys.has(normalizeToken(token.text)))
+    .slice(0, 18)
+    .map(({ _effectiveScore, ...token }) => token);
+  const title = titleFromTokens(selected);
+  const charCount = countChars(title);
+  const seoScore = selected.reduce((sum, token) => sum + tokenScore(token), 0);
+  const ctrScore = readabilityScore(title);
+
+  return {
+    strategy,
+    title,
+    charCount,
+    seoScore,
+    ctrScore,
+    warning: charCount < 70 ? "Below 70 chars: some title space is unused." : "",
+    selected,
+    dropped,
+    why: explainTitle(strategy, selected, dropped, charCount)
+  };
+}
+
+function explainTitle(strategy, selected, dropped, charCount) {
+  const messages = {
+    maximize_volume: "Highest raw token score while staying under 80 characters.",
+    balanced: "Balances high-volume tokens with natural German readability.",
+    audience_focused: "Boosts the selected buyer intent while preserving the core formula.",
+    long_tail_safe: "Keeps more specific detail terms for lower-competition searches."
+  };
+  const kept = selected.filter((token) => ["PACK", "MODIFIER", "SIZE", "SKU"].includes(token.slot)).map((token) => token.text).slice(0, 3);
+  return `${messages[strategy]} Uses ${charCount}/80 chars${kept.length ? ` and keeps ${kept.join(", ")}` : ""}. ${dropped.length ? "Lower-priority tokens were dropped for space." : "No relevant tokens were dropped."}`;
+}
+
+function generateTitleCandidates(data, libraryTokens, blocklist) {
+  const strategies = ["balanced", "maximize_volume", "audience_focused", "long_tail_safe"];
+  const seen = new Set();
+  return strategies
+    .map((strategy) => packTitle(data, libraryTokens, blocklist, strategy))
+    .filter((candidate) => {
+      const key = normalizeToken(candidate.title);
+      if (!candidate.title || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => (b.seoScore + b.ctrScore) - (a.seoScore + a.ctrScore));
+}
+
+function itemSpecifics(data) {
+  return {
+    Marke: data.brand,
+    Produktart: data.type,
+    Produktlinie: data.line,
+    Material: data.material || "Baumwolle",
+    Stoffgewicht: data.weight,
+    Ausschnitt: data.neck || data.cut || "",
+    "Ärmellänge": data.sleeve || "",
+    Passform: data.fit || "Regular Fit",
+    Abteilung: data.genders.join(", "),
+    "Größe": data.sizeRange,
+    Farbe: "Varianten / siehe Auswahl",
+    Stil: data.type,
+    Anlass: data.audience === "workwear" ? "Arbeitskleidung" : "Freizeit",
+    Pflegehinweise: "Maschinenwäsche",
+    Herstellernummer: data.mpn || data.sku
+  };
+}
+
+function descriptionOpener(data, droppedTokens) {
+  const packText = data.pack ? ` als ${data.pack}` : "";
+  const useCase = data.audience === "print"
+    ? "zum Bedrucken"
+    : data.audience === "workwear"
+      ? "Arbeitskleidung und Teams"
+      : "Alltag, Freizeit und Promotion";
+  const extras = droppedTokens.map((token) => token.text).filter(Boolean).slice(0, 4).join(", ");
+  return `${data.brand} ${data.line} ${data.type}${packText} fuer ${data.genders.join(", ")}. ${data.material || "Baumwolle"}, ${data.weight}, ${data.sizeRange}. Ideal fuer ${useCase}.${extras ? ` Weitere Merkmale: ${extras}.` : ""}`.slice(0, 250);
+}
+
+function variantTitleRows(data, libraryTokens, blocklist) {
+  if (data.listingKind !== "variant") return [];
+  return ["", "3er Pack", "5er Pack", "10er Pack"].map((pack) => {
+    const variantData = { ...data, listingKind: pack ? "pack" : "single", pack };
+    const best = generateTitleCandidates(variantData, libraryTokens, blocklist)[0];
+    return {
+      label: pack || "Single",
+      title: best?.title || "",
+      charCount: best?.charCount || 0
+    };
+  }).filter((row) => row.title);
+}
+
+async function logTitleGeneration(session) {
+  const line = `${JSON.stringify(session)}\n`;
+  try {
+    await appendFile(titleHistoryFile, line);
+  } catch {
+    // Logging should never block title generation.
+  }
+}
+
+async function handleTitleData(req, res) {
+  if (!isAuthorized(req)) return sendJson(res, 401, { error: "Access code is incorrect." });
+
+  const [library, master] = await Promise.all([readTokenLibrary(), readProductMaster()]);
+  const brands = [...new Set([
+    ...fallbackBrands,
+    ...master.products.map((product) => product.brand),
+    ...library.tokens.filter((token) => token.slot === "BRAND").map((token) => token.text)
+  ].filter(Boolean))];
+  const productTypes = [...new Set([
+    ...fallbackProductTypes,
+    ...master.products.map((product) => product.type),
+    ...library.tokens.filter((token) => token.slot === "TYPE").flatMap((token) => token.applicable_types || [token.text]).filter((item) => item !== "*")
+  ].filter(Boolean))];
+
+  return sendJson(res, 200, {
+    tokensVersion: library.version,
+    productsVersion: master.version,
+    products: master.products,
+    brands,
+    productTypes,
+    sizes: fallbackSizes
+  });
+}
+
+async function handleTitleGenerate(req, res) {
+  let body;
+  try {
+    body = await readRequestJson(req);
+  } catch (error) {
+    return sendJson(res, 400, { error: error.message });
+  }
+
+  if (!isAuthorized(req, body)) return sendJson(res, 401, { error: "Access code is incorrect." });
+
+  try {
+    const [library, master, blocklist] = await Promise.all([readTokenLibrary(), readProductMaster(), readBlocklist()]);
+    const data = cleanTitleRequest(body, master.products);
+    const candidates = generateTitleCandidates(data, library.tokens, blocklist);
+    const dropped = candidates.flatMap((candidate) => candidate.dropped);
+    const sessionId = randomUUID();
+
+    await logTitleGeneration({
+      timestamp: new Date().toISOString(),
+      session_id: sessionId,
+      brand: data.brand,
+      product_type: data.type,
+      sku: data.sku,
+      line: data.line,
+      weight: data.weight,
+      min_size: data.minSize,
+      max_size: data.maxSize,
+      gender_tokens: data.genders,
+      listing_kind: data.listingKind,
+      pack_size: data.pack,
+      audience: data.audience,
+      generated_titles: candidates.map((candidate) => candidate.title)
+    });
+
+    return sendJson(res, 200, {
+      sessionId,
+      candidates,
+      itemSpecifics: itemSpecifics(data),
+      descriptionOpener: descriptionOpener(data, dropped),
+      variantTitles: variantTitleRows(data, library.tokens, blocklist)
+    });
   } catch (error) {
     return sendJson(res, 400, { error: error.message });
   }
@@ -450,6 +935,14 @@ const server = createServer(async (req, res) => {
 
   if (url.pathname === "/api/frameworks") {
     return handleFrameworks(req, res);
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/title-data") {
+    return handleTitleData(req, res);
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/titles/generate") {
+    return handleTitleGenerate(req, res);
   }
 
   if (req.method === "POST" && url.pathname === "/api/generate") {
