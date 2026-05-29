@@ -1,8 +1,11 @@
 const form = document.querySelector("#generateForm");
 const gallery = document.querySelector("#gallery");
 const statusEl = document.querySelector("#status");
-const accessField = document.querySelector("#accessField");
 const accessCode = document.querySelector("#accessCode");
+const lockScreen = document.querySelector("#lockScreen");
+const lockForm = document.querySelector("#lockForm");
+const lockCode = document.querySelector("#lockCode");
+const lockError = document.querySelector("#lockError");
 const generateButton = document.querySelector("#generateButton");
 const clearButton = document.querySelector("#clearButton");
 const refreshButton = document.querySelector("#refreshButton");
@@ -140,7 +143,7 @@ function savedAccessCode() {
 }
 
 function currentAccessCode() {
-  return accessCode.value || savedAccessCode();
+  return accessCode.value || lockCode.value || savedAccessCode();
 }
 
 function populateSelect(select, options, preferred) {
@@ -708,8 +711,9 @@ async function loadGallery() {
 async function boot() {
   try {
     const config = await api("/api/config", { withAccess: false });
-    accessField.hidden = !config.accessRequired;
     accessCode.value = savedAccessCode();
+    lockCode.value = savedAccessCode();
+    lockScreen.hidden = !config.accessRequired || Boolean(savedAccessCode());
     populateTitleInputs();
     resetTitleForm();
     await loadFrameworks();
@@ -723,6 +727,26 @@ async function boot() {
   } catch (error) {
     setStatus(error.message, true);
     renderEmpty("Server is not reachable.");
+  }
+}
+
+async function unlockApp() {
+  const code = lockCode.value.trim();
+  if (!code) return;
+  accessCode.value = code;
+  localStorage.setItem("freelancerImageStudioAccessCode", code);
+
+  try {
+    await api("/api/gallery");
+    lockError.textContent = "";
+    lockScreen.hidden = true;
+    setStatus("Ready");
+    await loadGallery();
+  } catch {
+    localStorage.removeItem("freelancerImageStudioAccessCode");
+    accessCode.value = "";
+    lockError.textContent = "Password is incorrect.";
+    lockScreen.hidden = false;
   }
 }
 
@@ -759,6 +783,11 @@ form.addEventListener("submit", async (event) => {
   } finally {
     generateButton.disabled = false;
   }
+});
+
+lockForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await unlockApp();
 });
 
 clearButton.addEventListener("click", () => {

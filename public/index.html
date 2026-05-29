@@ -7,6 +7,19 @@
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
+    <section class="lock-screen" id="lockScreen" hidden>
+      <form class="lock-panel" id="lockForm">
+        <p class="eyebrow">Private workspace</p>
+        <h1>Freelancer Image Studio</h1>
+        <label>
+          <span>Password</span>
+          <input id="lockCode" type="password" autocomplete="current-password" placeholder="Enter password" required>
+        </label>
+        <button class="primary" type="submit">Unlock</button>
+        <p class="lock-error" id="lockError"></p>
+      </form>
+    </section>
+
     <nav class="app-nav" aria-label="App sections">
       <button class="tab-button active" type="button" data-tab="imageTab">Image Studio</button>
       <button class="tab-button" type="button" data-tab="titleTab">eBay Titles</button>
@@ -23,10 +36,7 @@
         </div>
 
         <form class="composer" id="generateForm">
-          <label class="access-field" id="accessField">
-            <span>Access code</span>
-            <input id="accessCode" name="accessCode" type="password" autocomplete="current-password" placeholder="Enter code">
-          </label>
+          <input id="accessCode" name="accessCode" type="hidden">
 
           <label class="prompt-field">
             <span>Prompt</span>
