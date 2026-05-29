@@ -35,10 +35,12 @@ const researchPasteZone = document.querySelector("#researchPasteZone");
 const researchPreview = document.querySelector("#researchPreview");
 const existingTokenList = document.querySelector("#existingTokenList");
 const existingTokenSummary = document.querySelector("#existingTokenSummary");
+const existingTokenHelp = document.querySelector("#existingTokenHelp");
 const saveTokensButton = document.querySelector("#saveTokensButton");
 const clearResearchButton = document.querySelector("#clearResearchButton");
 const extractTokensButton = document.querySelector("#extractTokensButton");
 const resetResearchButton = document.querySelector("#resetResearchButton");
+const resetResearchScope = document.querySelector("#resetResearchScope");
 
 const fields = {
   model: document.querySelector("#model"),
@@ -537,9 +539,15 @@ function renderExistingResearchTokens(tokens) {
   existingTokenSummary.textContent = existingResearchTokens.length
     ? `${existingResearchTokens.length} saved tokens for this brand/type`
     : "No saved tokens for this brand/type yet.";
+  existingTokenHelp.textContent = `Showing keywords available for ${researchFields.brand.value} + ${researchFields.type.value}. Score is SEO priority from 1 to 10: 10 means most important. Research count shows how often a screenshot confirmed it.`;
   existingTokenList.innerHTML = existingResearchTokens.length
     ? existingResearchTokens.map((token) => (
-      `<div class="existing-token">${escapeHtml(token.text)} <span>${escapeHtml(token.slot)} · ${Number(token.search_volume_score) || 0}${token.verified_count ? ` · ${token.verified_count}x` : ""}</span></div>`
+      `<div class="existing-token" title="${escapeHtml(token.text)} is a ${escapeHtml(token.slot)} token with SEO priority ${Number(token.search_volume_score) || 0}/10.">
+        <strong>${escapeHtml(token.text)}</strong>
+        <span>${escapeHtml(token.slot)}</span>
+        <span>SEO ${Number(token.search_volume_score) || 0}/10</span>
+        ${token.verified_count ? `<span>${token.verified_count} screenshot${token.verified_count === 1 ? "" : "s"}</span>` : ""}
+      </div>`
     )).join("")
     : `<div class="empty small-empty">Save extracted keywords to build this list.</div>`;
 }
@@ -1196,7 +1204,11 @@ researchForm.addEventListener("submit", async (event) => {
 });
 
 resetResearchButton.addEventListener("click", async () => {
-  const confirmed = confirm(`Reset research marks for ${researchFields.brand.value} ${researchFields.type.value}? The keywords stay saved.`);
+  const scope = resetResearchScope.value;
+  const scopeText = scope === "brand"
+    ? `${researchFields.brand.value} across all product types`
+    : `${researchFields.brand.value} + ${researchFields.type.value}`;
+  const confirmed = confirm(`Reset research marks for ${scopeText}? This clears screenshot counts and dates only. Keywords and SEO scores stay saved.`);
   if (!confirmed) return;
   resetResearchButton.disabled = true;
   researchStatus.textContent = "Resetting";
@@ -1207,7 +1219,8 @@ resetResearchButton.addEventListener("click", async () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         brand: researchFields.brand.value,
-        productType: researchFields.type.value
+        productType: scope === "brand" ? "" : researchFields.type.value,
+        scope
       })
     });
     researchStatus.textContent = "Reset";

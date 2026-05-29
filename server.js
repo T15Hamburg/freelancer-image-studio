@@ -864,6 +864,14 @@ function tokenMatchesResearchContext(token, brand, productType) {
     && (types.includes("*") || types.includes(productType));
 }
 
+function tokenMatchesResetScope(token, brand, productType, scope) {
+  const brands = Array.isArray(token.applicable_brands) ? token.applicable_brands : ["*"];
+  const types = Array.isArray(token.applicable_types) ? token.applicable_types : ["*"];
+  const brandMatches = brands.includes("*") || brands.includes(brand);
+  if (scope === "brand") return brandMatches;
+  return brandMatches && (types.includes("*") || types.includes(productType));
+}
+
 async function handleResearchTokens(req, res, url) {
   if (!isAuthorized(req)) return sendJson(res, 401, { error: "Access code is incorrect." });
 
@@ -909,13 +917,14 @@ async function handleResearchReset(req, res) {
 
   const brand = cleanText(body.brand || "");
   const productType = cleanText(body.productType || "");
-  if (!brand || !productType) return sendJson(res, 400, { error: "Brand and product type are required." });
+  const scope = body.scope === "brand" ? "brand" : "brand-type";
+  if (!brand || (scope === "brand-type" && !productType)) return sendJson(res, 400, { error: "Brand and product type are required." });
 
   try {
     const library = await readTokenLibrary();
     let reset = 0;
     const tokens = library.tokens.map((token) => {
-      if (!tokenMatchesResearchContext(token, brand, productType)) return token;
+      if (!tokenMatchesResetScope(token, brand, productType, scope)) return token;
       const next = { ...token };
       if (next.verified_count || next.last_verified || next.first_verified || next.source_queries || next.source_query) reset += 1;
       delete next.verified_count;

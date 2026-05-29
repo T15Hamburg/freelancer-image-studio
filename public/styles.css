@@ -666,6 +666,14 @@ button:disabled {
   margin-bottom: 10px;
 }
 
+.research-help {
+  margin: -2px 0 12px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
 .existing-token-list {
   display: flex;
   flex-wrap: wrap;
@@ -686,9 +694,23 @@ button:disabled {
   font-weight: 800;
 }
 
+.existing-token strong {
+  font-size: 0.78rem;
+}
+
 .existing-token span {
   color: var(--muted);
   font-size: 0.72rem;
+}
+
+.reset-panel {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
 }
 
 .small-empty {
