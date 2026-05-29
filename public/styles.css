@@ -109,6 +109,15 @@ textarea {
   padding: 24px;
 }
 
+.research-shell {
+  grid-template-columns: minmax(360px, 520px) minmax(0, 1fr);
+  gap: 24px;
+  width: min(1440px, 100%);
+  min-height: calc(100vh - 58px);
+  margin: 0 auto;
+  padding: 24px;
+}
+
 .workspace,
 .gallery-panel,
 .title-workspace,
@@ -359,6 +368,23 @@ select:focus {
   line-height: 1;
 }
 
+.paste-zone {
+  display: grid;
+  min-height: 96px;
+  place-items: center;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: #fffefa;
+  color: var(--muted);
+  font-weight: 850;
+  text-align: center;
+}
+
+.paste-zone:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(15, 123, 104, 0.16);
+}
+
 .actions {
   gap: 10px;
 }
@@ -553,6 +579,61 @@ button:disabled {
 .variant-row code {
   overflow-wrap: anywhere;
   white-space: normal;
+}
+
+.research-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffefa;
+}
+
+.research-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 760px;
+}
+
+.research-table th,
+.research-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 9px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.research-table th {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.research-table td:first-child,
+.research-table th:first-child {
+  width: 64px;
+  text-align: center;
+}
+
+.research-table input[type="checkbox"] {
+  width: auto;
+  height: auto;
+}
+
+.research-table input,
+.research-table select {
+  min-width: 110px;
+}
+
+.research-table .keyword-input {
+  min-width: 210px;
+}
+
+.research-table .score-input {
+  min-width: 68px;
+}
+
+.research-actions {
+  margin-top: 14px;
 }
 
 .gallery {

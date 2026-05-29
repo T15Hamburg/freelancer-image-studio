@@ -23,6 +23,7 @@
     <nav class="app-nav" aria-label="App sections">
       <button class="tab-button active" type="button" data-tab="imageTab">Image Studio</button>
       <button class="tab-button" type="button" data-tab="titleTab">eBay Titles</button>
+      <button class="tab-button" type="button" data-tab="researchTab">Token Research</button>
     </nav>
 
     <main class="shell tab-panel active" id="imageTab">
@@ -260,6 +261,84 @@
             <h2>Variant titles</h2>
             <div id="variantTitles" class="variant-list"></div>
           </section>
+        </div>
+      </section>
+    </main>
+
+    <main class="research-shell tab-panel" id="researchTab" hidden>
+      <section class="title-workspace" aria-label="Token research">
+        <div class="topbar">
+          <div>
+            <p class="eyebrow">Autocomplete mining</p>
+            <h1>Token Research</h1>
+          </div>
+          <div class="status" id="researchStatus">Ready</div>
+        </div>
+
+        <form class="title-form" id="researchForm">
+          <div class="manager-grid">
+            <label>
+              <span>Brand</span>
+              <select id="researchBrand"></select>
+            </label>
+            <label>
+              <span>Product type</span>
+              <select id="researchType"></select>
+            </label>
+          </div>
+
+          <label>
+            <span>eBay probe query</span>
+            <input id="researchQuery" type="text" placeholder="fruit of the loom t-shirt">
+          </label>
+
+          <label class="reference-picker">
+            <span>Autocomplete screenshot</span>
+            <input id="researchImage" type="file" accept="image/png,image/jpeg,image/webp">
+          </label>
+
+          <div class="paste-zone" id="researchPasteZone" tabindex="0">
+            Paste screenshot here
+          </div>
+          <div class="reference-preview" id="researchPreview"></div>
+
+          <details class="framework-manager">
+            <summary>Paste text instead</summary>
+            <label>
+              <span>Autocomplete suggestions, one per line</span>
+              <textarea id="researchManualText" rows="6" placeholder="fruit of the loom t-shirt&#10;fruit of the loom hoodie&#10;t-shirt herren"></textarea>
+            </label>
+          </details>
+
+          <div class="actions">
+            <button class="primary" id="extractTokensButton" type="submit">Extract keywords</button>
+            <button class="secondary" id="clearResearchButton" type="button">Clear</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="title-results-panel" aria-label="Token suggestions">
+        <div class="gallery-head">
+          <h2>Keyword candidates</h2>
+          <span class="muted" id="researchSummary">Paste an autocomplete screenshot first.</span>
+        </div>
+        <div class="research-table-wrap">
+          <table class="research-table">
+            <thead>
+              <tr>
+                <th>Save</th>
+                <th>Keyword</th>
+                <th>Slot</th>
+                <th>Score</th>
+                <th>Brand</th>
+                <th>Type</th>
+              </tr>
+            </thead>
+            <tbody id="researchResults"></tbody>
+          </table>
+        </div>
+        <div class="actions research-actions">
+          <button class="primary" id="saveTokensButton" type="button" disabled>Save selected tokens</button>
         </div>
       </section>
     </main>

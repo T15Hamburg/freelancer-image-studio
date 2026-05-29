@@ -27,6 +27,15 @@ const specificsOutput = document.querySelector("#specificsOutput");
 const descriptionOpener = document.querySelector("#descriptionOpener");
 const variantTitles = document.querySelector("#variantTitles");
 const skuOptions = document.querySelector("#skuOptions");
+const researchForm = document.querySelector("#researchForm");
+const researchStatus = document.querySelector("#researchStatus");
+const researchSummary = document.querySelector("#researchSummary");
+const researchResults = document.querySelector("#researchResults");
+const researchPasteZone = document.querySelector("#researchPasteZone");
+const researchPreview = document.querySelector("#researchPreview");
+const saveTokensButton = document.querySelector("#saveTokensButton");
+const clearResearchButton = document.querySelector("#clearResearchButton");
+const extractTokensButton = document.querySelector("#extractTokensButton");
 
 const fields = {
   model: document.querySelector("#model"),
@@ -58,12 +67,22 @@ const titleFields = {
   cut: document.querySelector("#titleCut")
 };
 
+const researchFields = {
+  brand: document.querySelector("#researchBrand"),
+  type: document.querySelector("#researchType"),
+  query: document.querySelector("#researchQuery"),
+  image: document.querySelector("#researchImage"),
+  manualText: document.querySelector("#researchManualText")
+};
+
 let selectedReferences = [];
 let frameworks = [];
 let titleCatalogProducts = [];
 let titleCatalogBrands = [];
 let titleCatalogProductTypes = [];
 let titleCatalogSizes = [];
+let selectedResearchImage = null;
+let researchSuggestions = [];
 
 const labels = {
   "gpt-image-1.5": "GPT Image 1.5",
@@ -473,6 +492,67 @@ function renderVariantTitleRows(rows) {
   }
 }
 
+const researchSlots = ["BRAND", "LINE", "TYPE", "GENDER", "WEIGHT", "SIZE", "MATERIAL", "CUT", "PACK", "MODIFIER"];
+
+function renderResearchSuggestions(suggestions) {
+  researchSuggestions = suggestions || [];
+  researchResults.innerHTML = "";
+  saveTokensButton.disabled = !researchSuggestions.length;
+  researchSummary.textContent = researchSuggestions.length
+    ? `${researchSuggestions.length} keyword candidates extracted. Review, then save selected.`
+    : "No keyword candidates found.";
+
+  for (const [index, token] of researchSuggestions.entries()) {
+    const row = document.createElement("tr");
+    const slotOptions = researchSlots.map((slot) => (
+      `<option value="${slot}" ${slot === token.slot ? "selected" : ""}>${slot}</option>`
+    )).join("");
+    row.innerHTML = `
+      <td><input type="checkbox" data-field="selected" data-index="${index}" checked></td>
+      <td><input class="keyword-input" data-field="text" data-index="${index}" value="${escapeHtml(token.text)}"></td>
+      <td><select data-field="slot" data-index="${index}">${slotOptions}</select></td>
+      <td><input class="score-input" data-field="search_volume_score" data-index="${index}" type="number" min="1" max="10" value="${Number(token.search_volume_score) || 5}"></td>
+      <td><input data-field="brand" data-index="${index}" value="${escapeHtml((token.applicable_brands || [researchFields.brand.value])[0] || "*")}"></td>
+      <td><input data-field="type" data-index="${index}" value="${escapeHtml((token.applicable_types || [researchFields.type.value])[0] || "*")}"></td>
+    `;
+    researchResults.append(row);
+  }
+}
+
+function selectedResearchTokens() {
+  const rows = Array.from(researchResults.querySelectorAll("tr"));
+  return rows.map((row, index) => {
+    const checked = row.querySelector("[data-field='selected']").checked;
+    if (!checked) return null;
+    const text = row.querySelector("[data-field='text']").value.trim();
+    const slot = row.querySelector("[data-field='slot']").value;
+    const score = Number(row.querySelector("[data-field='search_volume_score']").value) || 5;
+    const brand = row.querySelector("[data-field='brand']").value.trim() || "*";
+    const type = row.querySelector("[data-field='type']").value.trim() || "*";
+    return {
+      ...researchSuggestions[index],
+      text,
+      slot,
+      search_volume_score: score,
+      applicable_brands: [brand],
+      applicable_types: [type]
+    };
+  }).filter(Boolean);
+}
+
+function clearResearch() {
+  selectedResearchImage = null;
+  researchSuggestions = [];
+  researchFields.image.value = "";
+  researchFields.query.value = "";
+  researchFields.manualText.value = "";
+  researchResults.innerHTML = "";
+  researchPreview.innerHTML = "";
+  saveTokensButton.disabled = true;
+  researchStatus.textContent = "Ready";
+  researchSummary.textContent = "Paste an autocomplete screenshot first.";
+}
+
 async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text);
@@ -531,6 +611,8 @@ async function loadTitleData() {
   titleCatalogProductTypes = data.productTypes?.length ? data.productTypes : productTypes;
   titleCatalogSizes = data.sizes?.length ? data.sizes : sizeOrder;
   populateTitleInputs();
+  populateSelect(researchFields.brand, titleCatalogBrands, researchFields.brand.value || "Fruit of the Loom");
+  populateSelect(researchFields.type, titleCatalogProductTypes, researchFields.type.value || "T-Shirt");
   resetTitleForm();
 }
 
@@ -698,6 +780,31 @@ function renderReferencePreview() {
   }
 }
 
+function renderResearchPreview() {
+  researchPreview.innerHTML = "";
+  if (!selectedResearchImage) return;
+
+  const item = document.createElement("div");
+  item.className = "reference-thumb";
+  item.innerHTML = `
+    <img src="${selectedResearchImage.data}" alt="${escapeHtml(selectedResearchImage.name)}">
+    <button type="button" aria-label="Remove screenshot">x</button>
+  `;
+  item.querySelector("button").addEventListener("click", () => {
+    selectedResearchImage = null;
+    researchFields.image.value = "";
+    renderResearchPreview();
+    researchStatus.textContent = "Ready";
+  });
+  researchPreview.append(item);
+}
+
+async function setResearchImage(file) {
+  selectedResearchImage = await prepareReferenceImage(file);
+  renderResearchPreview();
+  researchStatus.textContent = "Screenshot ready";
+}
+
 async function api(path, options = {}) {
   const headers = {
     ...(options.headers || {})
@@ -772,6 +879,8 @@ async function boot() {
     lockCode.value = savedAccessCode();
     lockScreen.hidden = unlocked;
     populateTitleInputs();
+    populateSelect(researchFields.brand, titleCatalogBrands, "Fruit of the Loom");
+    populateSelect(researchFields.type, titleCatalogProductTypes, "T-Shirt");
     resetTitleForm();
     populateSelect(fields.model, config.models, config.defaultModel);
     populateSelect(fields.size, config.sizes, "1024x1024");
@@ -963,6 +1072,107 @@ referencePreview.addEventListener("click", (event) => {
   renderReferencePreview();
   setStatus(selectedReferences.length ? `${selectedReferences.length} reference image${selectedReferences.length === 1 ? "" : "s"}` : "Ready");
 });
+
+researchFields.image.addEventListener("change", async () => {
+  const file = researchFields.image.files?.[0];
+  if (!file) return;
+  researchStatus.textContent = "Reading screenshot";
+  try {
+    await setResearchImage(file);
+  } catch (error) {
+    selectedResearchImage = null;
+    researchFields.image.value = "";
+    renderResearchPreview();
+    researchStatus.textContent = error.message;
+  }
+});
+
+researchPasteZone.addEventListener("paste", async (event) => {
+  const file = Array.from(event.clipboardData?.files || []).find((item) => item.type.startsWith("image/"));
+  if (!file) return;
+  event.preventDefault();
+  researchStatus.textContent = "Reading pasted screenshot";
+  try {
+    await setResearchImage(file);
+  } catch (error) {
+    researchStatus.textContent = error.message;
+  }
+});
+
+researchPasteZone.addEventListener("click", () => researchPasteZone.focus());
+
+researchFields.brand.addEventListener("change", () => {
+  if (!researchFields.query.value.trim()) {
+    researchFields.query.value = `${researchFields.brand.value.toLowerCase()} ${researchFields.type.value.toLowerCase()}`.trim();
+  }
+});
+
+researchFields.type.addEventListener("change", () => {
+  if (!researchFields.query.value.trim()) {
+    researchFields.query.value = `${researchFields.brand.value.toLowerCase()} ${researchFields.type.value.toLowerCase()}`.trim();
+  }
+});
+
+researchForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  extractTokensButton.disabled = true;
+  researchStatus.textContent = "Extracting";
+
+  try {
+    const manualText = researchFields.manualText.value.trim();
+    if (!manualText && !selectedResearchImage) {
+      throw new Error("Paste a screenshot or add suggestions as text.");
+    }
+
+    const payload = {
+      brand: researchFields.brand.value,
+      productType: researchFields.type.value,
+      query: researchFields.query.value,
+      manualText,
+      image: manualText ? null : {
+        name: selectedResearchImage.name,
+        type: selectedResearchImage.type,
+        data: selectedResearchImage.data
+      }
+    };
+
+    const result = await api("/api/token-research/extract", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    renderResearchSuggestions(result.suggestions || []);
+    researchStatus.textContent = "Review";
+  } catch (error) {
+    researchStatus.textContent = error.message;
+  } finally {
+    extractTokensButton.disabled = false;
+  }
+});
+
+saveTokensButton.addEventListener("click", async () => {
+  const tokens = selectedResearchTokens();
+  if (!tokens.length) return;
+  saveTokensButton.disabled = true;
+  researchStatus.textContent = "Saving";
+
+  try {
+    const result = await api("/api/tokens/save", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tokens })
+    });
+    researchStatus.textContent = "Saved";
+    researchSummary.textContent = `${result.saved} tokens saved. Library now has ${result.tokenCount} tokens.`;
+    await loadTitleData();
+  } catch (error) {
+    researchStatus.textContent = error.message;
+  } finally {
+    saveTokensButton.disabled = false;
+  }
+});
+
+clearResearchButton.addEventListener("click", clearResearch);
 
 refreshButton.addEventListener("click", loadGallery);
 

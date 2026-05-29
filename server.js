@@ -24,6 +24,7 @@ const host = process.env.HOST || "127.0.0.1";
 const apiKey = process.env.OPENAI_API_KEY || "";
 const accessCode = process.env.FREELANCER_ACCESS_CODE || "";
 const configuredModel = process.env.OPENAI_IMAGE_MODEL || "gpt-image-1.5";
+const visionModel = process.env.OPENAI_VISION_MODEL || "gpt-4.1-mini";
 
 const allowedModels = new Set(["gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini"]);
 const defaultModel = allowedModels.has(configuredModel) ? configuredModel : "gpt-image-1.5";
@@ -50,6 +51,7 @@ const titleSlotOrder = ["BRAND", "LINE", "TYPE", "GENDER", "WEIGHT", "MATERIAL",
 const fallbackProductTypes = ["T-Shirt", "Longsleeve", "Sweatshirt", "Hoodie", "Poloshirt", "Jogginghose", "Oxfordhemd", "Cap"];
 const fallbackBrands = ["Fruit of the Loom", "Gildan", "B&C", "SOL'S", "Russell", "Neutral", "James & Nicholson", "Stedman", "Hanes", "Tee Jays"];
 const fallbackSizes = ["XS", "S", "M", "L", "XL", "XXL", "3XL", "4XL", "5XL"];
+const tokenSlots = ["BRAND", "LINE", "TYPE", "GENDER", "WEIGHT", "SIZE", "MATERIAL", "CUT", "PACK", "MODIFIER"];
 
 const defaultFrameworks = [
   {
@@ -283,7 +285,17 @@ async function readBlocklist() {
   return new Set((Array.isArray(data.blocklist) ? data.blocklist : []).map(normalizeToken));
 }
 
+async function writeTokenLibrary(library) {
+  const payload = {
+    version: new Date().toISOString().slice(0, 10),
+    tokens: Array.isArray(library.tokens) ? library.tokens : []
+  };
+  await writeFile(tokensFile, JSON.stringify(payload, null, 2));
+  return payload;
+}
+
 function tokenScore(token) {
+  if (!token) return 0;
   return Number(token.search_volume_score ?? token.score ?? 0) || 0;
 }
 
@@ -298,6 +310,10 @@ function tokenFromText(text, slot, score, extra = {}) {
     char_count: countChars(clean),
     ...extra
   };
+}
+
+function tokenIdFor(text, slot) {
+  return `${String(slot || "MODIFIER").toLowerCase()}_${normalizeToken(text)}`.slice(0, 90);
 }
 
 function isApplicable(token, data) {
@@ -567,6 +583,287 @@ function generateTitleCandidates(data, libraryTokens, blocklist) {
       return true;
     })
     .sort((a, b) => (b.seoScore + b.ctrScore) - (a.seoScore + a.ctrScore));
+}
+
+function inferSlot(text, brand, productType) {
+  const normalized = normalizeToken(text);
+  if (normalizeToken(brand) && normalized.includes(normalizeToken(brand))) return "BRAND";
+  if (normalizeToken(productType) && normalized.includes(normalizeToken(productType))) return "TYPE";
+  if (/^(herren|damen|unisex|kinder|jungen|maedchen)$/.test(normalized)) return "GENDER";
+  if (/^\d{2,3}g$/.test(normalized)) return "WEIGHT";
+  if (/^xs|s|m|l|xl|xxl|\dxl/.test(normalized) && /xl|xxl|s|m|l/.test(normalized)) return "SIZE";
+  if (/\d+erpack/.test(normalized)) return "PACK";
+  if (/baumwolle|cotton|ringspun|bio|fairtrade/.test(normalized)) return "MATERIAL";
+  if (/vneck|vausschnitt|rundhals|slimfit|regularfit|oversize|tailliert|crewneck/.test(normalized)) return "CUT";
+  return "MODIFIER";
+}
+
+function scoreForPosition(position) {
+  const numeric = Number(position) || 10;
+  return Math.max(3, Math.min(10, 11 - numeric));
+}
+
+function parseJsonArrayText(text) {
+  const raw = String(text || "").trim();
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : parsed.suggestions || [];
+  } catch {
+    const match = raw.match(/\[[\s\S]*\]/);
+    if (!match) return [];
+    try {
+      return JSON.parse(match[0]);
+    } catch {
+      return [];
+    }
+  }
+}
+
+function outputTextFromResponse(result) {
+  if (typeof result.output_text === "string") return result.output_text;
+  return (result.output || [])
+    .flatMap((item) => item.content || [])
+    .map((content) => content.text || "")
+    .filter(Boolean)
+    .join("\n");
+}
+
+function cleanResearchImage(image) {
+  const name = String(image?.name || "autocomplete-screenshot.jpg").replace(/[^\w.-]/g, "_");
+  const type = String(image?.type || "");
+  const data = String(image?.data || "");
+
+  if (!["image/png", "image/jpeg", "image/webp"].includes(type)) {
+    throw new Error("Screenshot must be PNG, JPEG, or WebP.");
+  }
+
+  const match = data.match(/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/);
+  if (!match || match[1] !== type) {
+    throw new Error("Screenshot could not be read.");
+  }
+
+  const bytes = Buffer.from(match[2], "base64");
+  if (bytes.length > 8_000_000) {
+    throw new Error("Screenshot must be smaller than 8 MB.");
+  }
+
+  return { name, type, data };
+}
+
+function suggestionToToken(suggestion, context, existingTokens) {
+  const text = cleanText(suggestion.text || suggestion.keyword || "", 120);
+  const position = Number(suggestion.position || 10);
+  const slot = tokenSlots.includes(suggestion.slot) ? suggestion.slot : inferSlot(text, context.brand, context.productType);
+  const existing = existingTokens.find((token) => normalizeToken(token.text) === normalizeToken(text) && token.slot === slot);
+  const score = Math.max(tokenScore(existing), Number(suggestion.search_volume_score) || scoreForPosition(position));
+
+  return {
+    id: existing?.id || tokenIdFor(text, slot),
+    text,
+    slot,
+    language: suggestion.language || (/^[\w\s&.'-]+$/.test(text) ? "NEUTRAL" : "DE"),
+    search_volume_score: score,
+    applicable_brands: context.brand ? [context.brand] : ["*"],
+    applicable_types: context.productType ? [context.productType] : ["*"],
+    char_count: countChars(text),
+    last_verified: new Date().toISOString().slice(0, 10),
+    source: "ebay_autocomplete_screenshot",
+    source_query: context.query,
+    position
+  };
+}
+
+function keywordPiecesFromSuggestion(suggestion, context) {
+  const original = cleanText(suggestion.text || suggestion.keyword || "", 120);
+  if (!original) return [];
+
+  let working = ` ${original.toLowerCase()} `;
+  for (const removable of [context.brand, context.productType, "t-shirt", "tshirt", "t shirt"]) {
+    const clean = cleanText(removable).toLowerCase();
+    if (clean) working = working.replaceAll(clean, " ");
+  }
+  working = working.replace(/\s+/g, " ").trim();
+
+  const pieces = [];
+  const patterns = [
+    { regex: /\b10er\s*pack\b/i, text: "10er Pack", slot: "PACK" },
+    { regex: /\b5er\s*pack\b/i, text: "5er Pack", slot: "PACK" },
+    { regex: /\b3er\s*pack\b/i, text: "3er Pack", slot: "PACK" },
+    { regex: /\b2er\s*pack\b/i, text: "2er Pack", slot: "PACK" },
+    { regex: /\bherren\b/i, text: "Herren", slot: "GENDER" },
+    { regex: /\bdamen\b/i, text: "Damen", slot: "GENDER" },
+    { regex: /\bunisex\b/i, text: "Unisex", slot: "GENDER" },
+    { regex: /\bkinder\b/i, text: "Kinder", slot: "GENDER" },
+    { regex: /\bbaumwolle\b/i, text: "Baumwolle", slot: "MATERIAL" },
+    { regex: /\bcotton\b/i, text: "Cotton", slot: "MATERIAL" },
+    { regex: /\bringspun\b/i, text: "Ringspun", slot: "MATERIAL" },
+    { regex: /\bblanko\b/i, text: "Blanko", slot: "MODIFIER" },
+    { regex: /\bbedruckbar\b/i, text: "Bedruckbar", slot: "MODIFIER" },
+    { regex: /\bzum\s+bedrucken\b/i, text: "zum Bedrucken", slot: "MODIFIER" },
+    { regex: /\barbeitskleidung\b/i, text: "Arbeitskleidung", slot: "MODIFIER" },
+    { regex: /\bworkwear\b/i, text: "Workwear", slot: "MODIFIER" },
+    { regex: /\bunifarben\b/i, text: "Unifarben", slot: "MODIFIER" },
+    { regex: /\bbasic\b/i, text: "Basic", slot: "MODIFIER" }
+  ];
+
+  for (const pattern of patterns) {
+    if (pattern.regex.test(original) || pattern.regex.test(working)) {
+      pieces.push({ ...suggestion, text: pattern.text, slot: pattern.slot });
+      working = working.replace(pattern.regex, " ");
+    }
+  }
+
+  const remainder = cleanText(working, 80);
+  if (!pieces.length && remainder) pieces.push({ ...suggestion, text: remainder, slot: inferSlot(remainder, context.brand, context.productType) });
+  return pieces.length ? pieces : [{ ...suggestion, text: original }];
+}
+
+function buildManualSuggestions(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((line, index) => cleanText(line.replace(/^\d+[.)]\s*/, ""), 120))
+    .filter(Boolean)
+    .map((line, index) => ({ position: index + 1, text: line }));
+}
+
+async function extractAutocompleteSuggestions(image, context) {
+  if (!apiKey) throw new Error("OPENAI_API_KEY is not set on the server.");
+
+  const prompt = `You are a strict data extraction tool for eBay.de autocomplete screenshots.
+Return only valid JSON. Extract every autocomplete suggestion visible in order from top to bottom.
+Then classify each suggestion as a useful eBay keyword for blank/basic apparel titles.
+Use slots only from: ${tokenSlots.join(", ")}.
+Return this JSON array shape:
+[
+  {"position":1,"text":"fruit of the loom t-shirt","is_keyword":true,"slot":"MODIFIER","reason":"autocomplete suggestion"}
+]
+Reject browser UI text, ads, menus, addresses, and unrelated words by setting is_keyword false.
+Context brand: ${context.brand || "unknown"}
+Context product type: ${context.productType || "unknown"}
+Probe query: ${context.query || "unknown"}`;
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      model: visionModel,
+      input: [{
+        role: "user",
+        content: [
+          { type: "input_text", text: prompt },
+          { type: "input_image", image_url: image.data, detail: "high" }
+        ]
+      }]
+    })
+  });
+
+  const text = await response.text();
+  let result;
+  try {
+    result = JSON.parse(text);
+  } catch {
+    result = { error: { message: text || "OpenAI returned a non-JSON response." } };
+  }
+
+  if (!response.ok) {
+    throw new Error(result?.error?.message || `OpenAI vision request failed with status ${response.status}.`);
+  }
+
+  return parseJsonArrayText(outputTextFromResponse(result));
+}
+
+async function handleTokenExtract(req, res) {
+  let body;
+  try {
+    body = await readRequestJson(req);
+  } catch (error) {
+    return sendJson(res, 400, { error: error.message });
+  }
+
+  if (!isAuthorized(req, body)) return sendJson(res, 401, { error: "Access code is incorrect." });
+
+  try {
+    const library = await readTokenLibrary();
+    const context = {
+      brand: cleanText(body.brand),
+      productType: cleanText(body.productType),
+      query: cleanText(body.query, 180)
+    };
+    const rawSuggestions = body.manualText
+      ? buildManualSuggestions(body.manualText)
+      : await extractAutocompleteSuggestions(cleanResearchImage(body.image), context);
+
+    const suggestions = rawSuggestions
+      .filter((item) => item && item.text && item.is_keyword !== false)
+      .flatMap((item) => keywordPiecesFromSuggestion(item, context))
+      .map((item) => suggestionToToken(item, context, library.tokens))
+      .filter((item) => item.text && !["https", "www", "ebay"].includes(normalizeToken(item.text)))
+      .filter((item, index, items) => items.findIndex((other) => normalizeToken(other.text) === normalizeToken(item.text) && other.slot === item.slot) === index)
+      .slice(0, 30);
+
+    return sendJson(res, 200, { suggestions });
+  } catch (error) {
+    return sendJson(res, 400, { error: error.message });
+  }
+}
+
+function cleanSavedToken(raw) {
+  const text = cleanText(raw.text, 120);
+  const slot = tokenSlots.includes(raw.slot) ? raw.slot : "MODIFIER";
+  if (!text) throw new Error("Token text is required.");
+  return {
+    id: cleanText(raw.id || tokenIdFor(text, slot), 90).replace(/[^\w-]/g, "_"),
+    text,
+    slot,
+    language: ["DE", "EN", "NEUTRAL"].includes(raw.language) ? raw.language : "NEUTRAL",
+    search_volume_score: Math.max(1, Math.min(10, Number(raw.search_volume_score) || 5)),
+    applicable_brands: Array.isArray(raw.applicable_brands) && raw.applicable_brands.length ? raw.applicable_brands.map((item) => cleanText(item, 80)) : ["*"],
+    applicable_types: Array.isArray(raw.applicable_types) && raw.applicable_types.length ? raw.applicable_types.map((item) => cleanText(item, 80)) : ["*"],
+    char_count: countChars(text),
+    last_verified: cleanText(raw.last_verified || new Date().toISOString().slice(0, 10), 20),
+    source: cleanText(raw.source || "manual_token_research", 80),
+    source_query: cleanText(raw.source_query || "", 180),
+    position: Number(raw.position) || undefined
+  };
+}
+
+async function handleTokenSave(req, res) {
+  let body;
+  try {
+    body = await readRequestJson(req);
+  } catch (error) {
+    return sendJson(res, 400, { error: error.message });
+  }
+
+  if (!isAuthorized(req, body)) return sendJson(res, 401, { error: "Access code is incorrect." });
+  if (!Array.isArray(body.tokens)) return sendJson(res, 400, { error: "Tokens must be an array." });
+
+  try {
+    const library = await readTokenLibrary();
+    const byKey = new Map(library.tokens.map((token) => [`${normalizeToken(token.text)}:${token.slot}`, token]));
+    let saved = 0;
+
+    for (const raw of body.tokens.slice(0, 60)) {
+      const token = cleanSavedToken(raw);
+      const key = `${normalizeToken(token.text)}:${token.slot}`;
+      const existing = byKey.get(key);
+      byKey.set(key, {
+        ...(existing || {}),
+        ...token,
+        search_volume_score: Math.max(token.search_volume_score, tokenScore(existing)),
+        char_count: countChars(token.text)
+      });
+      saved += 1;
+    }
+
+    const next = await writeTokenLibrary({ tokens: Array.from(byKey.values()) });
+    return sendJson(res, 200, { saved, tokensVersion: next.version, tokenCount: next.tokens.length });
+  } catch (error) {
+    return sendJson(res, 400, { error: error.message });
+  }
 }
 
 function itemSpecifics(data) {
@@ -943,6 +1240,14 @@ const server = createServer(async (req, res) => {
 
   if (req.method === "POST" && url.pathname === "/api/titles/generate") {
     return handleTitleGenerate(req, res);
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/token-research/extract") {
+    return handleTokenExtract(req, res);
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/tokens/save") {
+    return handleTokenSave(req, res);
   }
 
   if (req.method === "POST" && url.pathname === "/api/generate") {
