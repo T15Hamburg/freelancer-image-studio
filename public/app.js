@@ -499,6 +499,21 @@ function renderVariantTitleRows(rows) {
 }
 
 const researchSlots = ["BRAND", "LINE", "TYPE", "GENDER", "WEIGHT", "SIZE", "MATERIAL", "CUT", "PACK", "MODIFIER"];
+const researchTypePatterns = [
+  ["Sweatshirt", /\bsweat\s*shirt\b|\bsweatshirt\b/i],
+  ["Longsleeve", /\blongsleeve\b|\blangarmshirt\b/i],
+  ["Jogginghose", /\bjogginghose\b|\bsweatpants\b/i],
+  ["Oxfordhemd", /\boxfordhemd\b|\boxford\s*hemd\b/i],
+  ["Poloshirt", /\bpolo\s*shirt\b|\bpoloshirt\b|\bpolo\b/i],
+  ["Hoodie", /\bhoodie\b|\bkapuzenpullover\b/i],
+  ["Cap", /\bbasecap\b|\bcap\b/i],
+  ["T-Shirt", /\bt[\s-]?shirt\b|\btshirt\b/i]
+];
+
+function detectedResearchType(text) {
+  const raw = ` ${String(text || "").toLowerCase()} `;
+  return researchTypePatterns.find(([, regex]) => regex.test(raw))?.[0] || "";
+}
 
 function renderResearchSuggestions(suggestions) {
   researchSuggestions = suggestions || [];
@@ -1172,6 +1187,10 @@ researchForm.addEventListener("submit", async (event) => {
     const manualText = researchFields.manualText.value.trim();
     if (!manualText && !selectedResearchImage) {
       throw new Error("Paste a screenshot or add suggestions as text.");
+    }
+    const queryType = detectedResearchType(researchFields.query.value);
+    if (queryType && queryType !== researchFields.type.value) {
+      throw new Error(`Product type mismatch: query says ${queryType}, but dropdown is ${researchFields.type.value}. Switch the product type to ${queryType} first.`);
     }
 
     const payload = {

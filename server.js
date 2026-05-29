@@ -131,6 +131,26 @@ function cleanText(value, max = 120) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, max);
 }
 
+function detectProductTypeFromText(text) {
+  const raw = ` ${String(text || "").toLowerCase()} `;
+  const checks = [
+    ["Sweatshirt", /\bsweat\s*shirt\b|\bsweatshirt\b/],
+    ["Longsleeve", /\blongsleeve\b|\blangarmshirt\b/],
+    ["Jogginghose", /\bjogginghose\b|\bsweatpants\b/],
+    ["Oxfordhemd", /\boxfordhemd\b|\boxford\s*hemd\b/],
+    ["Poloshirt", /\bpolo\s*shirt\b|\bpoloshirt\b|\bpolo\b/],
+    ["Hoodie", /\bhoodie\b|\bkapuzenpullover\b/],
+    ["Cap", /\bbasecap\b|\bcap\b/],
+    ["T-Shirt", /\bt[\s-]?shirt\b|\btshirt\b/]
+  ];
+  return checks.find(([, regex]) => regex.test(raw))?.[0] || "";
+}
+
+function detectBrandFromText(text) {
+  const normalized = normalizeToken(text);
+  return fallbackBrands.find((brand) => normalizeToken(brand) && normalized.includes(normalizeToken(brand))) || "";
+}
+
 function isAuthorized(req, body = {}) {
   if (!accessCode) return true;
   const headerCode = req.headers["x-access-code"];
@@ -751,6 +771,34 @@ function buildManualSuggestions(text) {
     .map((line, index) => ({ position: index + 1, text: line }));
 }
 
+function validateResearchContext(context, rawSuggestions) {
+  const selectedType = context.productType;
+  const queryType = detectProductTypeFromText(context.query);
+  if (queryType && selectedType && queryType !== selectedType) {
+    throw new Error(`Product type mismatch: your query says "${queryType}", but the dropdown is "${selectedType}". Switch product type to "${queryType}" before extracting.`);
+  }
+
+  const suggestionTypes = new Set(
+    rawSuggestions
+      .map((item) => detectProductTypeFromText(item.text || item.keyword || ""))
+      .filter(Boolean)
+  );
+  if (!queryType && suggestionTypes.size === 1) {
+    const [onlyType] = Array.from(suggestionTypes);
+    if (onlyType !== selectedType) {
+      throw new Error(`Product type mismatch: this screenshot looks like "${onlyType}", but the dropdown is "${selectedType}". Switch product type to "${onlyType}" before extracting.`);
+    }
+  }
+
+  const selectedBrand = context.brand;
+  const detectedBrand = detectBrandFromText(context.query)
+    || rawSuggestions.map((item) => detectBrandFromText(item.text || item.keyword || "")).find(Boolean)
+    || "";
+  if (detectedBrand && selectedBrand && detectedBrand !== selectedBrand) {
+    throw new Error(`Brand mismatch: the research looks like "${detectedBrand}", but the dropdown is "${selectedBrand}". Switch brand to "${detectedBrand}" before extracting.`);
+  }
+}
+
 async function extractAutocompleteSuggestions(image, context) {
   if (!apiKey) throw new Error("OPENAI_API_KEY is not set on the server.");
 
@@ -820,6 +868,8 @@ async function handleTokenExtract(req, res) {
     const rawSuggestions = body.manualText
       ? buildManualSuggestions(body.manualText)
       : await extractAutocompleteSuggestions(cleanResearchImage(body.image), context);
+
+    validateResearchContext(context, rawSuggestions);
 
     const suggestions = rawSuggestions
       .filter((item) => item && item.text && item.is_keyword !== false)
@@ -963,6 +1013,14 @@ async function handleTokenSave(req, res) {
       const token = cleanSavedToken(raw);
       const key = `${normalizeToken(token.text)}:${token.slot}`;
       const existing = byKey.get(key);
+      const applicableBrands = new Set([
+        ...((existing?.applicable_brands || []).filter(Boolean)),
+        ...token.applicable_brands
+      ]);
+      const applicableTypes = new Set([
+        ...((existing?.applicable_types || []).filter(Boolean)),
+        ...token.applicable_types
+      ]);
       const sourceQueries = new Set([
         ...((existing?.source_queries || []).filter(Boolean)),
         ...(existing?.source_query ? [existing.source_query] : []),
@@ -973,6 +1031,8 @@ async function handleTokenSave(req, res) {
         ...(existing || {}),
         ...token,
         search_volume_score: Math.max(token.search_volume_score, tokenScore(existing)),
+        applicable_brands: Array.from(applicableBrands),
+        applicable_types: Array.from(applicableTypes),
         char_count: countChars(token.text),
         source_queries: Array.from(sourceQueries).slice(-20),
         verified_count: (Number(existing?.verified_count) || 0) + 1,
