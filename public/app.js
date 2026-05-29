@@ -501,8 +501,11 @@ function renderResearchSuggestions(suggestions) {
   researchSuggestions = suggestions || [];
   researchResults.innerHTML = "";
   saveTokensButton.disabled = !researchSuggestions.length;
+  const newCount = researchSuggestions.filter((token) => token.change_type === "new" || !token.exists).length;
+  const boostCount = researchSuggestions.filter((token) => token.change_type === "score_boost").length;
+  const unchangedCount = researchSuggestions.filter((token) => token.change_type === "unchanged").length;
   researchSummary.textContent = researchSuggestions.length
-    ? `${researchSuggestions.length} keyword candidates extracted. Review, then save selected.`
+    ? `${researchSuggestions.length} found: ${newCount} new, ${boostCount} score changes, ${unchangedCount} already saved.`
     : "No keyword candidates found.";
 
   for (const [index, token] of researchSuggestions.entries()) {
@@ -510,9 +513,12 @@ function renderResearchSuggestions(suggestions) {
     const slotOptions = researchSlots.map((slot) => (
       `<option value="${slot}" ${slot === token.slot ? "selected" : ""}>${slot}</option>`
     )).join("");
-    const existsLabel = token.exists
-      ? `<span class="existing-marker">Saved ${Number(token.existing_score) || Number(token.search_volume_score) || 0}</span>`
-      : `<span class="new-marker">New</span>`;
+    let existsLabel = `<span class="new-marker">New</span>`;
+    if (token.change_type === "score_boost") {
+      existsLabel = `<span class="boost-marker">Boost ${Number(token.existing_score) || 0}->${Number(token.proposed_score) || Number(token.search_volume_score) || 0}</span>`;
+    } else if (token.exists) {
+      existsLabel = `<span class="existing-marker">Already saved ${Number(token.existing_score) || Number(token.search_volume_score) || 0}</span>`;
+    }
     row.innerHTML = `
       <td><input type="checkbox" data-field="selected" data-index="${index}" checked></td>
       <td><input class="keyword-input" data-field="text" data-index="${index}" value="${escapeHtml(token.text)}">${existsLabel}</td>

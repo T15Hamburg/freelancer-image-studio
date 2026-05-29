@@ -658,7 +658,9 @@ function suggestionToToken(suggestion, context, existingTokens) {
   const position = Number(suggestion.position || 10);
   const slot = tokenSlots.includes(suggestion.slot) ? suggestion.slot : inferSlot(text, context.brand, context.productType);
   const existing = existingTokens.find((token) => normalizeToken(token.text) === normalizeToken(text) && token.slot === slot);
-  const score = Math.max(tokenScore(existing), Number(suggestion.search_volume_score) || scoreForPosition(position));
+  const proposedScore = Number(suggestion.search_volume_score) || scoreForPosition(position);
+  const existingScore = tokenScore(existing);
+  const score = Math.max(existingScore, proposedScore);
 
   return {
     id: existing?.id || tokenIdFor(text, slot),
@@ -674,7 +676,9 @@ function suggestionToToken(suggestion, context, existingTokens) {
     source_query: context.query,
     position,
     exists: Boolean(existing),
-    existing_score: existing ? tokenScore(existing) : 0,
+    existing_score: existingScore,
+    proposed_score: proposedScore,
+    change_type: existing ? (proposedScore > existingScore ? "score_boost" : "unchanged") : "new",
     verified_count: existing?.verified_count || 0
   };
 }
