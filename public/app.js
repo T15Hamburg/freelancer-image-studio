@@ -33,6 +33,8 @@ const researchSummary = document.querySelector("#researchSummary");
 const researchResults = document.querySelector("#researchResults");
 const researchPasteZone = document.querySelector("#researchPasteZone");
 const researchPreview = document.querySelector("#researchPreview");
+const existingTokenList = document.querySelector("#existingTokenList");
+const existingTokenSummary = document.querySelector("#existingTokenSummary");
 const saveTokensButton = document.querySelector("#saveTokensButton");
 const clearResearchButton = document.querySelector("#clearResearchButton");
 const extractTokensButton = document.querySelector("#extractTokensButton");
@@ -83,6 +85,7 @@ let titleCatalogProductTypes = [];
 let titleCatalogSizes = [];
 let selectedResearchImage = null;
 let researchSuggestions = [];
+let existingResearchTokens = [];
 
 const labels = {
   "gpt-image-1.5": "GPT Image 1.5",
@@ -507,15 +510,44 @@ function renderResearchSuggestions(suggestions) {
     const slotOptions = researchSlots.map((slot) => (
       `<option value="${slot}" ${slot === token.slot ? "selected" : ""}>${slot}</option>`
     )).join("");
+    const existsLabel = token.exists
+      ? `<span class="existing-marker">Saved ${Number(token.existing_score) || Number(token.search_volume_score) || 0}</span>`
+      : `<span class="new-marker">New</span>`;
     row.innerHTML = `
       <td><input type="checkbox" data-field="selected" data-index="${index}" checked></td>
-      <td><input class="keyword-input" data-field="text" data-index="${index}" value="${escapeHtml(token.text)}"></td>
+      <td><input class="keyword-input" data-field="text" data-index="${index}" value="${escapeHtml(token.text)}">${existsLabel}</td>
       <td><select data-field="slot" data-index="${index}">${slotOptions}</select></td>
       <td><input class="score-input" data-field="search_volume_score" data-index="${index}" type="number" min="1" max="10" value="${Number(token.search_volume_score) || 5}"></td>
       <td><input data-field="brand" data-index="${index}" value="${escapeHtml((token.applicable_brands || [researchFields.brand.value])[0] || "*")}"></td>
       <td><input data-field="type" data-index="${index}" value="${escapeHtml((token.applicable_types || [researchFields.type.value])[0] || "*")}"></td>
     `;
     researchResults.append(row);
+  }
+}
+
+function renderExistingResearchTokens(tokens) {
+  existingResearchTokens = tokens || [];
+  existingTokenSummary.textContent = existingResearchTokens.length
+    ? `${existingResearchTokens.length} saved tokens for this brand/type`
+    : "No saved tokens for this brand/type yet.";
+  existingTokenList.innerHTML = existingResearchTokens.length
+    ? existingResearchTokens.map((token) => (
+      `<div class="existing-token">${escapeHtml(token.text)} <span>${escapeHtml(token.slot)} · ${Number(token.search_volume_score) || 0}${token.verified_count ? ` · ${token.verified_count}x` : ""}</span></div>`
+    )).join("")
+    : `<div class="empty small-empty">Save extracted keywords to build this list.</div>`;
+}
+
+async function loadResearchTokens() {
+  if (!researchFields.brand.value || !researchFields.type.value) return;
+  try {
+    const params = new URLSearchParams({
+      brand: researchFields.brand.value,
+      productType: researchFields.type.value
+    });
+    const data = await api(`/api/token-research/tokens?${params}`);
+    renderExistingResearchTokens(data.tokens || []);
+  } catch (error) {
+    existingTokenSummary.textContent = error.message;
   }
 }
 
@@ -614,6 +646,7 @@ async function loadTitleData() {
   populateSelect(researchFields.brand, titleCatalogBrands, researchFields.brand.value || "Fruit of the Loom");
   populateSelect(researchFields.type, titleCatalogProductTypes, researchFields.type.value || "T-Shirt");
   resetTitleForm();
+  await loadResearchTokens();
 }
 
 function populateFrameworks() {
@@ -1101,16 +1134,18 @@ researchPasteZone.addEventListener("paste", async (event) => {
 
 researchPasteZone.addEventListener("click", () => researchPasteZone.focus());
 
-researchFields.brand.addEventListener("change", () => {
+researchFields.brand.addEventListener("change", async () => {
   if (!researchFields.query.value.trim()) {
     researchFields.query.value = `${researchFields.brand.value.toLowerCase()} ${researchFields.type.value.toLowerCase()}`.trim();
   }
+  await loadResearchTokens();
 });
 
-researchFields.type.addEventListener("change", () => {
+researchFields.type.addEventListener("change", async () => {
   if (!researchFields.query.value.trim()) {
     researchFields.query.value = `${researchFields.brand.value.toLowerCase()} ${researchFields.type.value.toLowerCase()}`.trim();
   }
+  await loadResearchTokens();
 });
 
 researchForm.addEventListener("submit", async (event) => {
@@ -1165,6 +1200,7 @@ saveTokensButton.addEventListener("click", async () => {
     researchStatus.textContent = "Saved";
     researchSummary.textContent = `${result.saved} tokens saved. Library now has ${result.tokenCount} tokens.`;
     await loadTitleData();
+    await loadResearchTokens();
   } catch (error) {
     researchStatus.textContent = error.message;
   } finally {

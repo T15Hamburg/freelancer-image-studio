@@ -632,8 +632,62 @@ button:disabled {
   min-width: 68px;
 }
 
+.existing-marker,
+.new-marker {
+  display: inline-block;
+  margin-top: 5px;
+  border-radius: 999px;
+  padding: 3px 7px;
+  font-size: 0.7rem;
+  font-weight: 850;
+}
+
+.existing-marker {
+  background: #e6f3ef;
+  color: var(--accent-dark);
+}
+
+.new-marker {
+  background: #f2ece3;
+  color: var(--muted);
+}
+
 .research-actions {
   margin-top: 14px;
+}
+
+.compact-head {
+  margin-bottom: 10px;
+}
+
+.existing-token-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.existing-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fffefa;
+  color: var(--ink);
+  padding: 6px 9px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.existing-token span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.small-empty {
+  min-height: 74px;
+  width: 100%;
 }
 
 .gallery {

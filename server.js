@@ -587,11 +587,14 @@ function generateTitleCandidates(data, libraryTokens, blocklist) {
 
 function inferSlot(text, brand, productType) {
   const normalized = normalizeToken(text);
-  if (normalizeToken(brand) && normalized.includes(normalizeToken(brand))) return "BRAND";
+  const typeWords = new Set(["t-shirt", "tshirt", "shirt", "longsleeve", "langarmshirt", "sweatshirt", "hoodie", "kapuzenpullover", "poloshirt", "polo", "jogginghose", "sweatpants", "oxfordhemd", "hemd", "cap", "basecap"]);
+  if (typeWords.has(normalized)) return "TYPE";
+  if (/heavycotton|valueweight|superpremium|softstyle|ultracotton|heavyblend|dryblend|setin|ladyfit|e190|e150|regent|imperial|sporty|iconic|original|classic/.test(normalized)) return "LINE";
+  if (normalizeToken(brand) && normalized === normalizeToken(brand)) return "BRAND";
   if (normalizeToken(productType) && normalized.includes(normalizeToken(productType))) return "TYPE";
   if (/^(herren|damen|unisex|kinder|jungen|maedchen)$/.test(normalized)) return "GENDER";
   if (/^\d{2,3}g$/.test(normalized)) return "WEIGHT";
-  if (/^xs|s|m|l|xl|xxl|\dxl/.test(normalized) && /xl|xxl|s|m|l/.test(normalized)) return "SIZE";
+  if (/^(xs|s|m|l|xl|xxl|\dxl)(xs|s|m|l|xl|xxl|\dxl)?$/.test(normalized) && /xl|xxl|s|m|l/.test(normalized)) return "SIZE";
   if (/\d+erpack/.test(normalized)) return "PACK";
   if (/baumwolle|cotton|ringspun|bio|fairtrade/.test(normalized)) return "MATERIAL";
   if (/vneck|vausschnitt|rundhals|slimfit|regularfit|oversize|tailliert|crewneck/.test(normalized)) return "CUT";
@@ -669,7 +672,10 @@ function suggestionToToken(suggestion, context, existingTokens) {
     last_verified: new Date().toISOString().slice(0, 10),
     source: "ebay_autocomplete_screenshot",
     source_query: context.query,
-    position
+    position,
+    exists: Boolean(existing),
+    existing_score: existing ? tokenScore(existing) : 0,
+    verified_count: existing?.verified_count || 0
   };
 }
 
@@ -680,12 +686,25 @@ function keywordPiecesFromSuggestion(suggestion, context) {
   let working = ` ${original.toLowerCase()} `;
   for (const removable of [context.brand, context.productType, "t-shirt", "tshirt", "t shirt"]) {
     const clean = cleanText(removable).toLowerCase();
-    if (clean) working = working.replaceAll(clean, " ");
+    if (!clean) continue;
+    const escaped = clean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+    working = working.replace(new RegExp(`\\b${escaped}\\b`, "gi"), " ");
   }
   working = working.replace(/\s+/g, " ").trim();
 
   const pieces = [];
   const patterns = [
+    { regex: /\bt[\s-]?shirt\b/i, text: "T-Shirt", slot: "TYPE" },
+    { regex: /\bsweatshirt\b/i, text: "Sweatshirt", slot: "TYPE" },
+    { regex: /\bjogginghose\b/i, text: "Jogginghose", slot: "TYPE" },
+    { regex: /\bpoloshirt\b/i, text: "Poloshirt", slot: "TYPE" },
+    { regex: /\bhoodie\b/i, text: "Hoodie", slot: "TYPE" },
+    { regex: /\bheavy\s+cotton\b/i, text: "Heavy Cotton", slot: "LINE" },
+    { regex: /\bvalueweight\b/i, text: "Valueweight", slot: "LINE" },
+    { regex: /\bsuper\s+premium\b/i, text: "Super Premium", slot: "LINE" },
+    { regex: /\bsoftstyle\b/i, text: "Softstyle", slot: "LINE" },
+    { regex: /\bultra\s+cotton\b/i, text: "Ultra Cotton", slot: "LINE" },
+    { regex: /\bheavy\s+blend\b/i, text: "Heavy Blend", slot: "LINE" },
     { regex: /\b10er\s*pack\b/i, text: "10er Pack", slot: "PACK" },
     { regex: /\b5er\s*pack\b/i, text: "5er Pack", slot: "PACK" },
     { regex: /\b3er\s*pack\b/i, text: "3er Pack", slot: "PACK" },
@@ -707,15 +726,17 @@ function keywordPiecesFromSuggestion(suggestion, context) {
   ];
 
   for (const pattern of patterns) {
-    if (pattern.regex.test(original) || pattern.regex.test(working)) {
+    if (pattern.regex.test(working)) {
       pieces.push({ ...suggestion, text: pattern.text, slot: pattern.slot });
       working = working.replace(pattern.regex, " ");
     }
   }
 
   const remainder = cleanText(working, 80);
-  if (!pieces.length && remainder) pieces.push({ ...suggestion, text: remainder, slot: inferSlot(remainder, context.brand, context.productType) });
-  return pieces.length ? pieces : [{ ...suggestion, text: original }];
+  if (remainder && normalizeToken(remainder) !== normalizeToken(context.brand)) {
+    pieces.push({ ...suggestion, text: remainder, slot: inferSlot(remainder, context.brand, context.productType) });
+  }
+  return pieces;
 }
 
 function buildManualSuggestions(text) {
@@ -826,8 +847,50 @@ function cleanSavedToken(raw) {
     last_verified: cleanText(raw.last_verified || new Date().toISOString().slice(0, 10), 20),
     source: cleanText(raw.source || "manual_token_research", 80),
     source_query: cleanText(raw.source_query || "", 180),
+    source_queries: Array.isArray(raw.source_queries) ? raw.source_queries.map((item) => cleanText(item, 180)).filter(Boolean) : [],
+    verified_count: Math.max(0, Number(raw.verified_count) || 0),
     position: Number(raw.position) || undefined
   };
+}
+
+function tokenMatchesResearchContext(token, brand, productType) {
+  const brands = Array.isArray(token.applicable_brands) ? token.applicable_brands : ["*"];
+  const types = Array.isArray(token.applicable_types) ? token.applicable_types : ["*"];
+  return (brands.includes("*") || brands.includes(brand))
+    && (types.includes("*") || types.includes(productType));
+}
+
+async function handleResearchTokens(req, res, url) {
+  if (!isAuthorized(req)) return sendJson(res, 401, { error: "Access code is incorrect." });
+
+  const brand = cleanText(url.searchParams.get("brand") || "");
+  const productType = cleanText(url.searchParams.get("productType") || "");
+  const library = await readTokenLibrary();
+  const tokens = library.tokens
+    .filter((token) => !brand || !productType || tokenMatchesResearchContext(token, brand, productType))
+    .sort((a, b) => {
+      const scoreDelta = tokenScore(b) - tokenScore(a);
+      if (scoreDelta !== 0) return scoreDelta;
+      return titleSlotOrder.indexOf(a.slot) - titleSlotOrder.indexOf(b.slot);
+    })
+    .slice(0, 120)
+    .map((token) => ({
+      id: token.id,
+      text: token.text,
+      slot: token.slot,
+      search_volume_score: tokenScore(token),
+      applicable_brands: token.applicable_brands || ["*"],
+      applicable_types: token.applicable_types || ["*"],
+      last_verified: token.last_verified || "",
+      source_queries: token.source_queries || (token.source_query ? [token.source_query] : []),
+      verified_count: token.verified_count || 0
+    }));
+
+  return sendJson(res, 200, {
+    tokens,
+    tokenCount: tokens.length,
+    tokensVersion: library.version
+  });
 }
 
 async function handleTokenSave(req, res) {
@@ -850,11 +913,21 @@ async function handleTokenSave(req, res) {
       const token = cleanSavedToken(raw);
       const key = `${normalizeToken(token.text)}:${token.slot}`;
       const existing = byKey.get(key);
+      const sourceQueries = new Set([
+        ...((existing?.source_queries || []).filter(Boolean)),
+        ...(existing?.source_query ? [existing.source_query] : []),
+        ...token.source_queries,
+        ...(token.source_query ? [token.source_query] : [])
+      ]);
       byKey.set(key, {
         ...(existing || {}),
         ...token,
         search_volume_score: Math.max(token.search_volume_score, tokenScore(existing)),
-        char_count: countChars(token.text)
+        char_count: countChars(token.text),
+        source_queries: Array.from(sourceQueries).slice(-20),
+        verified_count: (Number(existing?.verified_count) || 0) + 1,
+        first_verified: existing?.first_verified || token.last_verified,
+        last_verified: token.last_verified
       });
       saved += 1;
     }
@@ -1244,6 +1317,10 @@ const server = createServer(async (req, res) => {
 
   if (req.method === "POST" && url.pathname === "/api/token-research/extract") {
     return handleTokenExtract(req, res);
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/token-research/tokens") {
+    return handleResearchTokens(req, res, url);
   }
 
   if (req.method === "POST" && url.pathname === "/api/tokens/save") {
