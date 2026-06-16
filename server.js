@@ -37,6 +37,9 @@ const allowedBackgrounds = new Set(["auto", "opaque", "transparent"]);
 const geminiImageModel = configuredGeminiImageModel === "gemini-3-pro-image"
   ? "gemini-3.1-flash-image"
   : configuredGeminiImageModel;
+const geminiImageModelLabel = geminiImageModel === "gemini-3.1-flash-image"
+  ? "Nano Banana 2 (Gemini 3.1 Flash Image)"
+  : geminiImageModel;
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -1539,6 +1542,7 @@ const server = createServer(async (req, res) => {
       hasGeminiApiKey: Boolean(geminiApiKey),
       defaultModel,
       geminiImageModel,
+      geminiImageModelLabel,
       models: Array.from(allowedModels),
       sizes: Array.from(allowedSizes),
       qualities: Array.from(allowedQuality),

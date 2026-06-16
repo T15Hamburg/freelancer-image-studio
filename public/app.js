@@ -1089,7 +1089,7 @@ async function boot() {
     populateSelect(fields.quality, config.qualities, "auto");
     populateSelect(fields.outputFormat, config.formats, "png");
     populateSelect(fields.background, config.backgrounds, "auto");
-    geminiModelLabel.textContent = config.geminiImageModel || "gemini-3.1-flash-image";
+    geminiModelLabel.textContent = config.geminiImageModelLabel || "Nano Banana 2 (Gemini 3.1 Flash Image)";
     if (!unlocked) {
       setStatus("Locked");
       setGeminiStatus("Locked");
@@ -1181,7 +1181,7 @@ geminiForm.addEventListener("submit", async (event) => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         prompt: geminiFields.prompt.value,
-        model: geminiModelLabel.textContent.trim(),
+        model: appConfig.geminiImageModel || "gemini-3.1-flash-image",
         referenceImages: [{
           name: selectedGeminiImage.name,
           type: selectedGeminiImage.type,

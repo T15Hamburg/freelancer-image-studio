@@ -42,7 +42,7 @@ http://localhost:4173
 
 ## Gemini image tab
 
-Open the `Gemini Image` tab for a simple image-to-image workflow: upload one PNG/JPEG/WebP image, write one prompt, and generate with Gemini. Results are saved into the same gallery history.
+Open the `Gemini Image` tab for a simple image-to-image workflow: upload one PNG/JPEG/WebP image, write one prompt, and generate with Nano Banana 2 (`gemini-3.1-flash-image`). Results are saved into the same gallery history.
 
 ## eBay title generator
 
