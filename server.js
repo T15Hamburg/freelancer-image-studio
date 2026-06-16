@@ -25,7 +25,7 @@ const apiKey = process.env.OPENAI_API_KEY || "";
 const geminiApiKey = process.env.GEMINI_API_KEY || "";
 const accessCode = process.env.FREELANCER_ACCESS_CODE || "";
 const configuredModel = process.env.OPENAI_IMAGE_MODEL || "gpt-image-1.5";
-const geminiImageModel = process.env.GEMINI_IMAGE_MODEL || "gemini-3-pro-image";
+const configuredGeminiImageModel = process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image";
 const visionModel = process.env.OPENAI_VISION_MODEL || "gpt-4.1-mini";
 
 const allowedModels = new Set(["gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini"]);
@@ -34,6 +34,9 @@ const allowedSizes = new Set(["auto", "1024x1024", "1024x1536", "1536x1024"]);
 const allowedQuality = new Set(["auto", "low", "medium", "high"]);
 const allowedFormats = new Set(["png", "jpeg", "webp"]);
 const allowedBackgrounds = new Set(["auto", "opaque", "transparent"]);
+const geminiImageModel = configuredGeminiImageModel === "gemini-3-pro-image"
+  ? "gemini-3.1-flash-image"
+  : configuredGeminiImageModel;
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",

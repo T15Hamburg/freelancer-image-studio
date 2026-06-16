@@ -23,7 +23,7 @@ http://localhost:4173
 - `GEMINI_API_KEY`: Required for the `Gemini Image` tab.
 - `FREELANCER_ACCESS_CODE`: Optional. When set, the freelancer must enter this code in the app.
 - `OPENAI_IMAGE_MODEL`: Optional. Defaults to `gpt-image-1.5`.
-- `GEMINI_IMAGE_MODEL`: Optional. Defaults to `gemini-3-pro-image`.
+- `GEMINI_IMAGE_MODEL`: Optional. Defaults to `gemini-3.1-flash-image`.
 - `PORT`: Optional. Defaults to `4173`.
 - `HOST`: Optional. Defaults to `127.0.0.1`.
 

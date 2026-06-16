@@ -1089,7 +1089,7 @@ async function boot() {
     populateSelect(fields.quality, config.qualities, "auto");
     populateSelect(fields.outputFormat, config.formats, "png");
     populateSelect(fields.background, config.backgrounds, "auto");
-    geminiModelLabel.textContent = config.geminiImageModel || "gemini-3-pro-image";
+    geminiModelLabel.textContent = config.geminiImageModel || "gemini-3.1-flash-image";
     if (!unlocked) {
       setStatus("Locked");
       setGeminiStatus("Locked");
