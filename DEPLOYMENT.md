@@ -28,7 +28,9 @@ Optional:
 
 ```text
 OPENAI_IMAGE_MODEL=gpt-image-1.5
-GEMINI_IMAGE_MODEL=gemini-3.1-flash-image
+GEMINI_IMAGE_MODEL=gemini-3-pro-image-preview
+GEMINI_FALLBACK_IMAGE_MODEL=gemini-3.1-flash-image
+GEMINI_API_VERSION=v1beta
 ```
 
 ## Persistent Storage

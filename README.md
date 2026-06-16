@@ -23,7 +23,9 @@ http://localhost:4173
 - `GEMINI_API_KEY`: Required for the `Gemini Image` tab.
 - `FREELANCER_ACCESS_CODE`: Optional. When set, the freelancer must enter this code in the app.
 - `OPENAI_IMAGE_MODEL`: Optional. Defaults to `gpt-image-1.5`.
-- `GEMINI_IMAGE_MODEL`: Optional. Defaults to `gemini-3.1-flash-image`.
+- `GEMINI_IMAGE_MODEL`: Optional. Defaults to `gemini-3-pro-image-preview` for Nano Banana Pro.
+- `GEMINI_FALLBACK_IMAGE_MODEL`: Optional. Defaults to `gemini-3.1-flash-image` for Nano Banana 2.
+- `GEMINI_API_VERSION`: Optional. Defaults to `v1beta` for preview image models.
 - `PORT`: Optional. Defaults to `4173`.
 - `HOST`: Optional. Defaults to `127.0.0.1`.
 
@@ -42,7 +44,7 @@ http://localhost:4173
 
 ## Gemini image tab
 
-Open the `Gemini Image` tab for a simple image-to-image workflow: upload one PNG/JPEG/WebP image, write one prompt, and generate with Nano Banana 2 (`gemini-3.1-flash-image`). Results are saved into the same gallery history.
+Open the `Gemini Image` tab for a simple image-to-image workflow: upload one PNG/JPEG/WebP image, write one prompt, and generate with Nano Banana Pro (`gemini-3-pro-image-preview`). If that model is not enabled for the project, the server retries with Nano Banana 2 (`gemini-3.1-flash-image`). Results are saved into the same gallery history.
 
 ## eBay title generator
 

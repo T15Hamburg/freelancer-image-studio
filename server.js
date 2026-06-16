@@ -25,7 +25,9 @@ const apiKey = process.env.OPENAI_API_KEY || "";
 const geminiApiKey = process.env.GEMINI_API_KEY || "";
 const accessCode = process.env.FREELANCER_ACCESS_CODE || "";
 const configuredModel = process.env.OPENAI_IMAGE_MODEL || "gpt-image-1.5";
-const configuredGeminiImageModel = process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image";
+const configuredGeminiImageModel = process.env.GEMINI_IMAGE_MODEL || "gemini-3-pro-image-preview";
+const configuredGeminiFallbackImageModel = process.env.GEMINI_FALLBACK_IMAGE_MODEL || "gemini-3.1-flash-image";
+const geminiApiVersion = process.env.GEMINI_API_VERSION || "v1beta";
 const visionModel = process.env.OPENAI_VISION_MODEL || "gpt-4.1-mini";
 
 const allowedModels = new Set(["gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini"]);
@@ -34,12 +36,22 @@ const allowedSizes = new Set(["auto", "1024x1024", "1024x1536", "1536x1024"]);
 const allowedQuality = new Set(["auto", "low", "medium", "high"]);
 const allowedFormats = new Set(["png", "jpeg", "webp"]);
 const allowedBackgrounds = new Set(["auto", "opaque", "transparent"]);
-const geminiImageModel = configuredGeminiImageModel === "gemini-3-pro-image"
-  ? "gemini-3.1-flash-image"
-  : configuredGeminiImageModel;
-const geminiImageModelLabel = geminiImageModel === "gemini-3.1-flash-image"
-  ? "Nano Banana 2 (Gemini 3.1 Flash Image)"
-  : geminiImageModel;
+
+function normalizeGeminiImageModel(model) {
+  const value = String(model || "").trim();
+  if (value === "gemini-3-pro-image") return "gemini-3-pro-image-preview";
+  return value || "gemini-3-pro-image-preview";
+}
+
+function geminiImageLabel(model) {
+  if (model === "gemini-3-pro-image-preview") return "Nano Banana Pro (Gemini 3 Pro Image Preview)";
+  if (model === "gemini-3.1-flash-image") return "Nano Banana 2 (Gemini 3.1 Flash Image)";
+  return model;
+}
+
+const geminiImageModel = normalizeGeminiImageModel(configuredGeminiImageModel);
+const geminiFallbackImageModel = normalizeGeminiImageModel(configuredGeminiFallbackImageModel);
+const geminiImageModelLabel = geminiImageLabel(geminiImageModel);
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -1378,7 +1390,7 @@ function cleanGeminiRequest(body) {
     throw new Error("Upload exactly one image for Gemini generation.");
   }
 
-  const model = cleanText(body.model || geminiImageModel, 120) || geminiImageModel;
+  const model = normalizeGeminiImageModel(cleanText(body.model || geminiImageModel, 120));
   return { prompt, model, image: images[0] };
 }
 
@@ -1387,40 +1399,52 @@ async function callGeminiImageApi(payload) {
     throw new Error("GEMINI_API_KEY is not set on the server.");
   }
 
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/${encodeURIComponent(payload.model)}:generateContent`, {
-    method: "POST",
-    headers: {
-      "x-goog-api-key": geminiApiKey,
-      "content-type": "application/json"
-    },
-    body: JSON.stringify({
-      contents: [{
-        parts: [
-          { text: payload.prompt },
-          {
-            inlineData: {
-              mimeType: payload.image.type,
-              data: payload.image.bytes.toString("base64")
+  const modelsToTry = [payload.model, geminiFallbackImageModel]
+    .map(normalizeGeminiImageModel)
+    .filter((model, index, models) => model && models.indexOf(model) === index);
+  let lastError;
+
+  for (const model of modelsToTry) {
+    const response = await fetch(`https://generativelanguage.googleapis.com/${geminiApiVersion}/models/${encodeURIComponent(model)}:generateContent`, {
+      method: "POST",
+      headers: {
+        "x-goog-api-key": geminiApiKey,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: payload.prompt },
+            {
+              inlineData: {
+                mimeType: payload.image.type,
+                data: payload.image.bytes.toString("base64")
+              }
             }
-          }
-        ]
-      }]
-    })
-  });
+          ]
+        }]
+      })
+    });
 
-  const text = await response.text();
-  let result;
-  try {
-    result = JSON.parse(text);
-  } catch {
-    result = { error: { message: text || "Gemini returned a non-JSON response." } };
+    const text = await response.text();
+    let result;
+    try {
+      result = JSON.parse(text);
+    } catch {
+      result = { error: { message: text || "Gemini returned a non-JSON response." } };
+    }
+
+    if (response.ok) {
+      return { result, model };
+    }
+
+    const message = result?.error?.message || `Gemini request failed with status ${response.status}.`;
+    lastError = new Error(message);
+    const canFallback = /not found|not supported for generateContent/i.test(message);
+    if (!canFallback) break;
   }
 
-  if (!response.ok) {
-    throw new Error(result?.error?.message || `Gemini request failed with status ${response.status}.`);
-  }
-
-  return result;
+  throw lastError || new Error("Gemini request failed.");
 }
 
 function imageFormatFromMime(mimeType) {
@@ -1461,7 +1485,7 @@ async function handleGeminiGenerate(req, res) {
   }
 
   try {
-    const result = await callGeminiImageApi(payload);
+    const { result, model } = await callGeminiImageApi(payload);
     const images = extractGeminiImages(result);
     if (!images.length) {
       throw new Error("Gemini did not return an image. Try a more direct image editing prompt.");
@@ -1479,7 +1503,7 @@ async function handleGeminiGenerate(req, res) {
         id: randomUUID(),
         prompt: payload.prompt,
         revisedPrompt: "",
-        model: payload.model,
+        model,
         size: "Gemini",
         quality: "Pro",
         outputFormat,
@@ -1543,6 +1567,8 @@ const server = createServer(async (req, res) => {
       defaultModel,
       geminiImageModel,
       geminiImageModelLabel,
+      geminiFallbackImageModel,
+      geminiFallbackImageModelLabel: geminiImageLabel(geminiFallbackImageModel),
       models: Array.from(allowedModels),
       sizes: Array.from(allowedSizes),
       qualities: Array.from(allowedQuality),
