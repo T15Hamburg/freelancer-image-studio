@@ -22,8 +22,10 @@ const bundledBlocklistFile = join(bundledDataDir, "blocklist.json");
 const port = Number(process.env.PORT || 4173);
 const host = process.env.HOST || "127.0.0.1";
 const apiKey = process.env.OPENAI_API_KEY || "";
+const geminiApiKey = process.env.GEMINI_API_KEY || "";
 const accessCode = process.env.FREELANCER_ACCESS_CODE || "";
 const configuredModel = process.env.OPENAI_IMAGE_MODEL || "gpt-image-1.5";
+const geminiImageModel = process.env.GEMINI_IMAGE_MODEL || "gemini-3-pro-image";
 const visionModel = process.env.OPENAI_VISION_MODEL || "gpt-4.1-mini";
 
 const allowedModels = new Set(["gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini"]);
@@ -1361,6 +1363,138 @@ async function handleGenerate(req, res) {
   }
 }
 
+function cleanGeminiRequest(body) {
+  const prompt = cleanText(body.prompt, 4000);
+  if (prompt.length < 3) throw new Error("Write a longer prompt before generating.");
+
+  const images = cleanReferenceImages(body.referenceImages);
+  if (images.length !== 1) {
+    throw new Error("Upload exactly one image for Gemini generation.");
+  }
+
+  const model = cleanText(body.model || geminiImageModel, 120) || geminiImageModel;
+  return { prompt, model, image: images[0] };
+}
+
+async function callGeminiImageApi(payload) {
+  if (!geminiApiKey) {
+    throw new Error("GEMINI_API_KEY is not set on the server.");
+  }
+
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/${encodeURIComponent(payload.model)}:generateContent`, {
+    method: "POST",
+    headers: {
+      "x-goog-api-key": geminiApiKey,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      contents: [{
+        parts: [
+          { text: payload.prompt },
+          {
+            inlineData: {
+              mimeType: payload.image.type,
+              data: payload.image.bytes.toString("base64")
+            }
+          }
+        ]
+      }],
+      generationConfig: {
+        responseModalities: ["TEXT", "IMAGE"]
+      }
+    })
+  });
+
+  const text = await response.text();
+  let result;
+  try {
+    result = JSON.parse(text);
+  } catch {
+    result = { error: { message: text || "Gemini returned a non-JSON response." } };
+  }
+
+  if (!response.ok) {
+    throw new Error(result?.error?.message || `Gemini request failed with status ${response.status}.`);
+  }
+
+  return result;
+}
+
+function imageFormatFromMime(mimeType) {
+  if (mimeType === "image/jpeg") return "jpeg";
+  if (mimeType === "image/webp") return "webp";
+  return "png";
+}
+
+function extractGeminiImages(result) {
+  const parts = (result?.candidates || [])
+    .flatMap((candidate) => candidate?.content?.parts || []);
+  return parts
+    .map((part) => part.inlineData || part.inline_data)
+    .filter((inlineData) => inlineData?.data)
+    .map((inlineData) => ({
+      bytes: Buffer.from(inlineData.data, "base64"),
+      mimeType: inlineData.mimeType || inlineData.mime_type || "image/png"
+    }));
+}
+
+async function handleGeminiGenerate(req, res) {
+  let body;
+  try {
+    body = await readRequestJson(req);
+  } catch (error) {
+    return sendJson(res, 400, { error: error.message });
+  }
+
+  if (!isAuthorized(req, body)) {
+    return sendJson(res, 401, { error: "Access code is incorrect." });
+  }
+
+  let payload;
+  try {
+    payload = cleanGeminiRequest(body);
+  } catch (error) {
+    return sendJson(res, 400, { error: error.message });
+  }
+
+  try {
+    const result = await callGeminiImageApi(payload);
+    const images = extractGeminiImages(result);
+    if (!images.length) {
+      throw new Error("Gemini did not return an image. Try a more direct image editing prompt.");
+    }
+
+    const gallery = await readGallery();
+    const created = [];
+
+    for (const [index, image] of images.entries()) {
+      const outputFormat = imageFormatFromMime(image.mimeType);
+      const fileName = fileNameFor(outputFormat, index);
+      const filePath = join(generatedDir, fileName);
+      await writeFile(filePath, image.bytes);
+      created.push({
+        id: randomUUID(),
+        prompt: payload.prompt,
+        revisedPrompt: "",
+        model: payload.model,
+        size: "Gemini",
+        quality: "Pro",
+        outputFormat,
+        background: "auto",
+        framework: "Gemini Simple",
+        referenceCount: 1,
+        createdAt: new Date().toISOString(),
+        url: `/generated/${fileName}`
+      });
+    }
+
+    await writeGallery([...created.reverse(), ...gallery]);
+    return sendJson(res, 200, { items: created.reverse() });
+  } catch (error) {
+    return sendJson(res, 500, { error: error.message });
+  }
+}
+
 async function handleGallery(req, res) {
   if (!isAuthorized(req)) {
     return sendJson(res, 401, { error: "Access code is incorrect." });
@@ -1402,7 +1536,9 @@ const server = createServer(async (req, res) => {
     return sendJson(res, 200, {
       accessRequired: Boolean(accessCode),
       hasApiKey: Boolean(apiKey),
+      hasGeminiApiKey: Boolean(geminiApiKey),
       defaultModel,
+      geminiImageModel,
       models: Array.from(allowedModels),
       sizes: Array.from(allowedSizes),
       qualities: Array.from(allowedQuality),
@@ -1445,6 +1581,10 @@ const server = createServer(async (req, res) => {
 
   if (req.method === "POST" && url.pathname === "/api/generate") {
     return handleGenerate(req, res);
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/gemini/generate") {
+    return handleGeminiGenerate(req, res);
   }
 
   if (req.method === "GET") {

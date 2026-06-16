@@ -9,6 +9,13 @@ const lockError = document.querySelector("#lockError");
 const generateButton = document.querySelector("#generateButton");
 const clearButton = document.querySelector("#clearButton");
 const refreshButton = document.querySelector("#refreshButton");
+const geminiForm = document.querySelector("#geminiForm");
+const geminiStatus = document.querySelector("#geminiStatus");
+const geminiPreview = document.querySelector("#geminiPreview");
+const geminiResult = document.querySelector("#geminiResult");
+const geminiGenerateButton = document.querySelector("#geminiGenerateButton");
+const geminiClearButton = document.querySelector("#geminiClearButton");
+const geminiModelLabel = document.querySelector("#geminiModelLabel");
 const applyFrameworkButton = document.querySelector("#applyFrameworkButton");
 const saveFrameworkButton = document.querySelector("#saveFrameworkButton");
 const newFrameworkButton = document.querySelector("#newFrameworkButton");
@@ -64,6 +71,11 @@ const fields = {
   referenceImages: document.querySelector("#referenceImages")
 };
 
+const geminiFields = {
+  image: document.querySelector("#geminiImage"),
+  prompt: document.querySelector("#geminiPrompt")
+};
+
 const titleFields = {
   brand: document.querySelector("#titleBrand"),
   sku: document.querySelector("#titleSku"),
@@ -87,7 +99,9 @@ const researchFields = {
 };
 
 let selectedReferences = [];
+let selectedGeminiImage = null;
 let frameworks = [];
+let appConfig = {};
 let titleCatalogProducts = [];
 let titleCatalogBrands = [];
 let titleCatalogProductTypes = [];
@@ -176,6 +190,11 @@ const slotOrder = ["BRAND", "LINE", "TYPE", "GENDER", "CUT", "MATERIAL", "WEIGHT
 function setStatus(message, isError = false) {
   statusEl.textContent = message;
   statusEl.classList.toggle("error", isError);
+}
+
+function setGeminiStatus(message, isError = false) {
+  geminiStatus.textContent = message;
+  geminiStatus.classList.toggle("error", isError);
 }
 
 function savedAccessCode() {
@@ -922,10 +941,35 @@ function renderResearchPreview() {
   researchPreview.append(item);
 }
 
+function renderGeminiPreview() {
+  geminiPreview.innerHTML = "";
+  if (!selectedGeminiImage) return;
+
+  const item = document.createElement("div");
+  item.className = "reference-thumb";
+  item.innerHTML = `
+    <img src="${selectedGeminiImage.data}" alt="${escapeHtml(selectedGeminiImage.name)}">
+    <button type="button" aria-label="Remove Gemini input image">x</button>
+  `;
+  item.querySelector("button").addEventListener("click", () => {
+    selectedGeminiImage = null;
+    geminiFields.image.value = "";
+    renderGeminiPreview();
+    setGeminiStatus("Ready");
+  });
+  geminiPreview.append(item);
+}
+
 async function setResearchImage(file) {
   selectedResearchImage = await prepareReferenceImage(file);
   renderResearchPreview();
   researchStatus.textContent = "Screenshot ready";
+}
+
+async function setGeminiImage(file) {
+  selectedGeminiImage = await prepareReferenceImage(file);
+  renderGeminiPreview();
+  setGeminiStatus("Image ready");
 }
 
 async function api(path, options = {}) {
@@ -985,6 +1029,40 @@ function renderGallery(items) {
   }
 }
 
+function renderGeminiResult(items) {
+  geminiResult.innerHTML = "";
+  if (!items.length) {
+    geminiResult.innerHTML = `<div class="empty">Generated Gemini images will appear here and save into the main gallery.</div>`;
+    return;
+  }
+
+  for (const item of items) {
+    const card = template.content.cloneNode(true);
+    const img = card.querySelector("img");
+    const link = card.querySelector(".image-link");
+    const prompt = card.querySelector(".card-prompt");
+    const meta = card.querySelector(".meta");
+    const download = card.querySelector(".download");
+
+    img.src = item.url;
+    img.alt = item.prompt || "Gemini generated image";
+    link.href = item.url;
+    prompt.textContent = item.prompt || "Gemini generated image";
+    download.href = item.url;
+    download.download = item.url.split("/").pop();
+
+    const date = new Date(item.createdAt);
+    const bits = [
+      item.model,
+      item.referenceCount ? `${item.referenceCount} refs` : "",
+      date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
+    ];
+    meta.innerHTML = bits.filter(Boolean).map((bit) => `<span>${escapeHtml(String(bit))}</span>`).join("");
+
+    geminiResult.append(card);
+  }
+}
+
 async function loadGallery() {
   try {
     const data = await api("/api/gallery");
@@ -997,6 +1075,7 @@ async function loadGallery() {
 async function boot() {
   try {
     const config = await api("/api/config", { withAccess: false });
+    appConfig = config;
     const unlocked = !config.accessRequired || Boolean(savedAccessCode());
     accessCode.value = savedAccessCode();
     lockCode.value = savedAccessCode();
@@ -1010,17 +1089,21 @@ async function boot() {
     populateSelect(fields.quality, config.qualities, "auto");
     populateSelect(fields.outputFormat, config.formats, "png");
     populateSelect(fields.background, config.backgrounds, "auto");
+    geminiModelLabel.textContent = config.geminiImageModel || "gemini-3-pro-image";
     if (!unlocked) {
       setStatus("Locked");
+      setGeminiStatus("Locked");
       renderEmpty("Unlock the app to load saved images.");
       return;
     }
     await loadTitleData();
     await loadFrameworks();
     setStatus(config.hasApiKey ? "Ready" : "Missing API key", !config.hasApiKey);
+    setGeminiStatus(config.hasGeminiApiKey ? "Ready" : "Missing Gemini key", !config.hasGeminiApiKey);
     await loadGallery();
   } catch (error) {
     setStatus(error.message, true);
+    setGeminiStatus(error.message, true);
     renderEmpty("Server is not reachable.");
   }
 }
@@ -1037,7 +1120,8 @@ async function unlockApp() {
     lockScreen.hidden = true;
     await loadTitleData();
     await loadFrameworks();
-    setStatus("Ready");
+    setStatus(appConfig.hasApiKey ? "Ready" : "Missing API key", !appConfig.hasApiKey);
+    setGeminiStatus(appConfig.hasGeminiApiKey ? "Ready" : "Missing Gemini key", !appConfig.hasGeminiApiKey);
     await loadGallery();
   } catch {
     localStorage.removeItem("freelancerImageStudioAccessCode");
@@ -1079,6 +1163,40 @@ form.addEventListener("submit", async (event) => {
     setStatus(error.message, true);
   } finally {
     generateButton.disabled = false;
+  }
+});
+
+geminiForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  geminiGenerateButton.disabled = true;
+  setGeminiStatus("Generating");
+
+  try {
+    if (!selectedGeminiImage) {
+      throw new Error("Upload one image first.");
+    }
+
+    const result = await api("/api/gemini/generate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        prompt: geminiFields.prompt.value,
+        model: geminiModelLabel.textContent.trim(),
+        referenceImages: [{
+          name: selectedGeminiImage.name,
+          type: selectedGeminiImage.type,
+          data: selectedGeminiImage.data
+        }]
+      })
+    });
+
+    renderGeminiResult(result.items || []);
+    await loadGallery();
+    setGeminiStatus("Done");
+  } catch (error) {
+    setGeminiStatus(error.message, true);
+  } finally {
+    geminiGenerateButton.disabled = false;
   }
 });
 
@@ -1194,6 +1312,29 @@ referencePreview.addEventListener("click", (event) => {
   fields.referenceImages.value = "";
   renderReferencePreview();
   setStatus(selectedReferences.length ? `${selectedReferences.length} reference image${selectedReferences.length === 1 ? "" : "s"}` : "Ready");
+});
+
+geminiFields.image.addEventListener("change", async () => {
+  const file = geminiFields.image.files?.[0];
+  if (!file) return;
+  setGeminiStatus("Reading image");
+  try {
+    await setGeminiImage(file);
+  } catch (error) {
+    selectedGeminiImage = null;
+    geminiFields.image.value = "";
+    renderGeminiPreview();
+    setGeminiStatus(error.message, true);
+  }
+});
+
+geminiClearButton.addEventListener("click", () => {
+  selectedGeminiImage = null;
+  geminiFields.image.value = "";
+  geminiFields.prompt.value = "";
+  renderGeminiPreview();
+  renderGeminiResult([]);
+  setGeminiStatus("Ready");
 });
 
 researchFields.image.addEventListener("change", async () => {

@@ -1,6 +1,6 @@
 # Freelancer Image Studio
 
-A small private image-generation app for a freelancer. Your OpenAI API key stays on the server; the browser only sends prompts and settings.
+A small private image-generation app for a freelancer. Your OpenAI and Gemini API keys stay on the server; the browser only sends prompts, settings, and uploaded images.
 
 This uses the OpenAI Images API. The current OpenAI image-generation docs list GPT Image models such as `gpt-image-1.5`, `gpt-image-1`, and `gpt-image-1-mini` for image generation.
 
@@ -8,7 +8,7 @@ This uses the OpenAI Images API. The current OpenAI image-generation docs list G
 
 ```bash
 cd /Users/christophhaas/Documents/freelancer-image-studio
-OPENAI_API_KEY="sk-..." FREELANCER_ACCESS_CODE="choose-a-code" node server.js
+OPENAI_API_KEY="sk-..." GEMINI_API_KEY="..." FREELANCER_ACCESS_CODE="choose-a-code" node server.js
 ```
 
 Then open:
@@ -20,8 +20,10 @@ http://localhost:4173
 ## Environment variables
 
 - `OPENAI_API_KEY`: Required for real image generation.
+- `GEMINI_API_KEY`: Required for the `Gemini Image` tab.
 - `FREELANCER_ACCESS_CODE`: Optional. When set, the freelancer must enter this code in the app.
 - `OPENAI_IMAGE_MODEL`: Optional. Defaults to `gpt-image-1.5`.
+- `GEMINI_IMAGE_MODEL`: Optional. Defaults to `gemini-3-pro-image`.
 - `PORT`: Optional. Defaults to `4173`.
 - `HOST`: Optional. Defaults to `127.0.0.1`.
 
@@ -37,6 +39,10 @@ http://localhost:4173
 - With no reference images, the app creates a new image from the prompt.
 - With reference images, the app uses OpenAI's image edit/reference endpoint.
 - Use `Input fidelity: High` when product details, logos, faces, or style consistency matter.
+
+## Gemini image tab
+
+Open the `Gemini Image` tab for a simple image-to-image workflow: upload one PNG/JPEG/WebP image, write one prompt, and generate with Gemini. Results are saved into the same gallery history.
 
 ## eBay title generator
 

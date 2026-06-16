@@ -22,6 +22,7 @@
 
     <nav class="app-nav" aria-label="App sections">
       <button class="tab-button active" type="button" data-tab="imageTab">Image Studio</button>
+      <button class="tab-button" type="button" data-tab="geminiTab">Gemini Image</button>
       <button class="tab-button" type="button" data-tab="titleTab">eBay Titles</button>
       <button class="tab-button" type="button" data-tab="researchTab">Token Research</button>
     </nav>
@@ -129,6 +130,46 @@
           <button class="secondary compact" id="refreshButton" type="button">Refresh</button>
         </div>
         <div class="gallery" id="gallery"></div>
+      </section>
+    </main>
+
+    <main class="gemini-shell tab-panel" id="geminiTab" hidden>
+      <section class="workspace" aria-label="Gemini image generator">
+        <div class="topbar">
+          <div>
+            <p class="eyebrow">Simple Gemini workspace</p>
+            <h1>Gemini Image</h1>
+          </div>
+          <div class="status" id="geminiStatus">Checking server</div>
+        </div>
+
+        <form class="composer" id="geminiForm">
+          <label class="reference-picker">
+            <span>Input image</span>
+            <input id="geminiImage" type="file" accept="image/png,image/jpeg,image/webp" required>
+          </label>
+          <div class="reference-preview gemini-preview" id="geminiPreview"></div>
+
+          <label class="prompt-field">
+            <span>Prompt</span>
+            <textarea id="geminiPrompt" rows="9" maxlength="4000" placeholder="Describe what Gemini should change or create from this image..." required></textarea>
+          </label>
+
+          <div class="actions">
+            <button class="primary" id="geminiGenerateButton" type="submit">Generate with Gemini</button>
+            <button class="secondary" id="geminiClearButton" type="button">Clear</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="gallery-panel" aria-label="Gemini result">
+        <div class="gallery-head">
+          <h2>Gemini result</h2>
+          <span class="muted" id="geminiModelLabel">Gemini image model</span>
+        </div>
+        <div class="gallery gemini-result" id="geminiResult">
+          <div class="empty">Generated Gemini images will appear here and save into the main gallery.</div>
+        </div>
       </section>
     </main>
 

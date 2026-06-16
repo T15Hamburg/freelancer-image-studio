@@ -11,12 +11,13 @@ Use a managed container host with a persistent disk:
 - Fly.io app + Volume
 - Small VPS with Docker
 
-Do not use Cloudflare Pages for this version. The app needs a private server-side `OPENAI_API_KEY` and persistent storage for generated images, gallery metadata, and saved frameworks.
+Do not use Cloudflare Pages for this version. The app needs private server-side API keys and persistent storage for generated images, gallery metadata, saved frameworks, and token research.
 
 ## Required Environment Variables
 
 ```text
 OPENAI_API_KEY=sk-...
+GEMINI_API_KEY=...
 FREELANCER_ACCESS_CODE=choose-a-private-code
 HOST=0.0.0.0
 PORT=4173
@@ -27,6 +28,7 @@ Optional:
 
 ```text
 OPENAI_IMAGE_MODEL=gpt-image-1.5
+GEMINI_IMAGE_MODEL=gemini-3-pro-image
 ```
 
 ## Persistent Storage

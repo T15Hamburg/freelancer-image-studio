@@ -100,6 +100,15 @@ textarea {
   padding: 24px;
 }
 
+.gemini-shell {
+  grid-template-columns: minmax(340px, 520px) minmax(0, 1fr);
+  gap: 24px;
+  width: min(1440px, 100%);
+  min-height: calc(100vh - 58px);
+  margin: 0 auto;
+  padding: 24px;
+}
+
 .title-shell {
   grid-template-columns: minmax(360px, 520px) minmax(0, 1fr);
   gap: 24px;
@@ -366,6 +375,10 @@ select:focus {
   background: rgba(29, 36, 32, 0.72);
   color: white;
   line-height: 1;
+}
+
+.gemini-preview {
+  grid-template-columns: minmax(160px, 240px);
 }
 
 .paste-zone {
@@ -738,6 +751,11 @@ button:disabled {
   gap: 16px;
 }
 
+.gemini-result {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 320px));
+  align-content: start;
+}
+
 .empty {
   display: grid;
   min-height: 320px;
@@ -805,7 +823,9 @@ button:disabled {
 
 @media (max-width: 900px) {
   .shell,
-  .title-shell {
+  .gemini-shell,
+  .title-shell,
+  .research-shell {
     grid-template-columns: 1fr;
     padding: 14px;
   }
