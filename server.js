@@ -1398,10 +1398,7 @@ async function callGeminiImageApi(payload) {
             }
           }
         ]
-      }],
-      generationConfig: {
-        responseModalities: ["TEXT", "IMAGE"]
-      }
+      }]
     })
   });
 
