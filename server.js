@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { appendFile, readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createSign, randomUUID } from "node:crypto";
 
 const rootDir = resolve(".");
 const publicDir = join(rootDir, "public");
@@ -29,6 +29,9 @@ const configuredGeminiImageModel = process.env.GEMINI_IMAGE_MODEL || "gemini-3-p
 const configuredGeminiFallbackImageModel = process.env.GEMINI_FALLBACK_IMAGE_MODEL || "gemini-3.1-flash-image";
 const geminiApiVersion = process.env.GEMINI_API_VERSION || "v1beta";
 const visionModel = process.env.OPENAI_VISION_MODEL || "gpt-4.1-mini";
+const googleDriveFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID || "18ZjRl0dPhuAKL9vXsVutNgLuDLWYnHGm";
+const googleServiceAccountJson = process.env.GOOGLE_SERVICE_ACCOUNT_JSON || "";
+const googleServiceAccountBase64 = process.env.GOOGLE_SERVICE_ACCOUNT_BASE64 || "";
 
 const allowedModels = new Set(["gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini"]);
 const defaultModel = allowedModels.has(configuredModel) ? configuredModel : "gpt-image-1.5";
@@ -52,6 +55,7 @@ function geminiImageLabel(model) {
 const geminiImageModel = normalizeGeminiImageModel(configuredGeminiImageModel);
 const geminiFallbackImageModel = normalizeGeminiImageModel(configuredGeminiFallbackImageModel);
 const geminiImageModelLabel = geminiImageLabel(geminiImageModel);
+let googleDriveTokenCache = { token: "", expiresAt: 0 };
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -1254,6 +1258,129 @@ async function imageFromUrl(url) {
   return Buffer.from(await response.arrayBuffer());
 }
 
+function base64Url(input) {
+  return Buffer.from(input)
+    .toString("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
+}
+
+function googleServiceAccount() {
+  const raw = googleServiceAccountJson
+    || (googleServiceAccountBase64 ? Buffer.from(googleServiceAccountBase64, "base64").toString("utf8") : "");
+  if (!raw) return null;
+
+  try {
+    const credentials = JSON.parse(raw);
+    credentials.private_key = String(credentials.private_key || "").replace(/\\n/g, "\n");
+    if (!credentials.client_email || !credentials.private_key) {
+      throw new Error("Service account JSON must include client_email and private_key.");
+    }
+    return credentials;
+  } catch (error) {
+    throw new Error(`Google service account credentials are invalid: ${error.message}`);
+  }
+}
+
+async function googleDriveAccessToken() {
+  if (googleDriveTokenCache.token && googleDriveTokenCache.expiresAt > Date.now() + 60_000) {
+    return googleDriveTokenCache.token;
+  }
+
+  const credentials = googleServiceAccount();
+  if (!credentials) return "";
+
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: "RS256", typ: "JWT" };
+  const claim = {
+    iss: credentials.client_email,
+    scope: "https://www.googleapis.com/auth/drive.file",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600
+  };
+  const unsigned = `${base64Url(JSON.stringify(header))}.${base64Url(JSON.stringify(claim))}`;
+  const signature = createSign("RSA-SHA256")
+    .update(unsigned)
+    .sign(credentials.private_key);
+  const assertion = `${unsigned}.${base64Url(signature)}`;
+
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion
+    })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(result.error_description || result.error || `Google auth failed with status ${response.status}.`);
+  }
+
+  googleDriveTokenCache = {
+    token: result.access_token,
+    expiresAt: Date.now() + ((Number(result.expires_in) || 3600) * 1000)
+  };
+  return googleDriveTokenCache.token;
+}
+
+async function backupImageToGoogleDrive(bytes, fileName, mimeType, description = "") {
+  if (!googleDriveFolderId || (!googleServiceAccountJson && !googleServiceAccountBase64)) return null;
+
+  const token = await googleDriveAccessToken();
+  if (!token) return null;
+
+  const boundary = `fis_${randomUUID()}`;
+  const metadata = {
+    name: fileName,
+    parents: [googleDriveFolderId],
+    description
+  };
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`),
+    Buffer.from(`--${boundary}\r\ncontent-type: ${mimeType}\r\n\r\n`),
+    bytes,
+    Buffer.from(`\r\n--${boundary}--\r\n`)
+  ]);
+
+  const response = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,webContentLink", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": `multipart/related; boundary=${boundary}`,
+      "content-length": String(body.length)
+    },
+    body
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(result.error?.message || `Google Drive upload failed with status ${response.status}.`);
+  }
+
+  return {
+    id: result.id,
+    name: result.name,
+    webViewLink: result.webViewLink,
+    webContentLink: result.webContentLink
+  };
+}
+
+async function driveBackupMetadata(bytes, fileName, mimeType, prompt) {
+  try {
+    const driveFile = await backupImageToGoogleDrive(bytes, fileName, mimeType, prompt.slice(0, 500));
+    if (!driveFile) return {};
+    return {
+      driveFileId: driveFile.id,
+      driveUrl: driveFile.webViewLink || "",
+      driveDownloadUrl: driveFile.webContentLink || ""
+    };
+  } catch (error) {
+    return { driveError: error.message };
+  }
+}
+
 async function callOpenAIImageApi(payload) {
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is not set on the server.");
@@ -1357,6 +1484,12 @@ async function handleGenerate(req, res) {
         : await imageFromUrl(image.url);
 
       await writeFile(filePath, bytes);
+      const driveBackup = await driveBackupMetadata(
+        bytes,
+        fileName,
+        mimeTypes[extname(filePath)] || "application/octet-stream",
+        payload.prompt
+      );
       const item = {
         id: randomUUID(),
         prompt: payload.prompt,
@@ -1369,7 +1502,8 @@ async function handleGenerate(req, res) {
         framework: payload.framework,
         referenceCount: payload.referenceImages.length,
         createdAt: new Date().toISOString(),
-        url: `/generated/${fileName}`
+        url: `/generated/${fileName}`,
+        ...driveBackup
       };
       created.push(item);
     }
@@ -1499,6 +1633,12 @@ async function handleGeminiGenerate(req, res) {
       const fileName = fileNameFor(outputFormat, index);
       const filePath = join(generatedDir, fileName);
       await writeFile(filePath, image.bytes);
+      const driveBackup = await driveBackupMetadata(
+        image.bytes,
+        fileName,
+        image.mimeType || mimeTypes[extname(filePath)] || "application/octet-stream",
+        payload.prompt
+      );
       created.push({
         id: randomUUID(),
         prompt: payload.prompt,
@@ -1511,7 +1651,8 @@ async function handleGeminiGenerate(req, res) {
         framework: "Gemini Simple",
         referenceCount: 1,
         createdAt: new Date().toISOString(),
-        url: `/generated/${fileName}`
+        url: `/generated/${fileName}`,
+        ...driveBackup
       });
     }
 
@@ -1564,6 +1705,7 @@ const server = createServer(async (req, res) => {
       accessRequired: Boolean(accessCode),
       hasApiKey: Boolean(apiKey),
       hasGeminiApiKey: Boolean(geminiApiKey),
+      hasGoogleDriveBackup: Boolean(googleDriveFolderId && (googleServiceAccountJson || googleServiceAccountBase64)),
       defaultModel,
       geminiImageModel,
       geminiImageModelLabel,

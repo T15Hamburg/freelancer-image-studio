@@ -1019,6 +1019,8 @@ function renderGallery(items) {
       item.model,
       item.framework,
       item.referenceCount ? `${item.referenceCount} refs` : "",
+      item.driveUrl ? "Drive backup" : "",
+      item.driveError ? "Drive failed" : "",
       labels[item.size] || item.size,
       labels[item.quality] || item.quality,
       date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
@@ -1055,6 +1057,8 @@ function renderGeminiResult(items) {
     const bits = [
       item.model,
       item.referenceCount ? `${item.referenceCount} refs` : "",
+      item.driveUrl ? "Drive backup" : "",
+      item.driveError ? "Drive failed" : "",
       date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
     ];
     meta.innerHTML = bits.filter(Boolean).map((bit) => `<span>${escapeHtml(String(bit))}</span>`).join("");

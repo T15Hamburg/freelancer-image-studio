@@ -33,6 +33,7 @@ http://localhost:4173
 
 - Generated images are saved in `data/generated/`.
 - Gallery metadata is saved in `data/gallery.json`.
+- If Google Drive backup is configured, each new generated image is also uploaded to the configured Drive folder.
 
 ## Reference images and frameworks
 
@@ -45,6 +46,15 @@ http://localhost:4173
 ## Gemini image tab
 
 Open the `Gemini Image` tab for a simple image-to-image workflow: upload one PNG/JPEG/WebP image, write one prompt, and generate with Nano Banana Pro (`gemini-3-pro-image-preview`). If that model is not enabled for the project, the server retries with Nano Banana 2 (`gemini-3.1-flash-image`). Results are saved into the same gallery history.
+
+## Google Drive backup
+
+Set these environment variables to copy every newly generated image into Google Drive:
+
+- `GOOGLE_DRIVE_FOLDER_ID`: Target folder ID. Defaults to `18ZjRl0dPhuAKL9vXsVutNgLuDLWYnHGm`.
+- `GOOGLE_SERVICE_ACCOUNT_JSON`: Google service account JSON key. Do not commit this value.
+
+Share the Drive folder with the service account `client_email` as Editor.
 
 ## eBay title generator
 

@@ -22,6 +22,7 @@ FREELANCER_ACCESS_CODE=choose-a-private-code
 HOST=0.0.0.0
 PORT=4173
 DATA_DIR=/data
+GOOGLE_DRIVE_FOLDER_ID=18ZjRl0dPhuAKL9vXsVutNgLuDLWYnHGm
 ```
 
 Optional:
@@ -31,6 +32,7 @@ OPENAI_IMAGE_MODEL=gpt-image-1.5
 GEMINI_IMAGE_MODEL=gemini-3-pro-image-preview
 GEMINI_FALLBACK_IMAGE_MODEL=gemini-3.1-flash-image
 GEMINI_API_VERSION=v1beta
+GOOGLE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
 ```
 
 ## Persistent Storage
@@ -50,6 +52,19 @@ The app stores:
 ```
 
 Without a persistent disk, generated images and saved prompt frameworks may disappear when the service restarts.
+
+## Google Drive Backup
+
+To upload every newly generated image to Google Drive:
+
+1. In Google Cloud, create a service account for the project.
+2. Enable the Google Drive API for that project.
+3. Create a JSON key for the service account.
+4. Share the target Google Drive folder with the service account `client_email` as Editor.
+5. In Render, add `GOOGLE_SERVICE_ACCOUNT_JSON` with the full JSON key as the value.
+6. Set `GOOGLE_DRIVE_FOLDER_ID` to the folder ID.
+
+The app still saves locally first. If a Drive upload fails, generation still completes and the gallery item records `driveError`.
 
 ## Docker
 
